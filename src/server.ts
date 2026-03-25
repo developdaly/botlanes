@@ -272,8 +272,15 @@ export function buildStagePrompt(params: {
     `If you need human input to proceed, ask exactly one clear question by POSTing to the Mission Control callback URL in this environment:`,
     `curl -sS -X POST "$MC_CARD_API_URL/question" \\\n  -H "Authorization: Bearer $MC_AUTH_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data '{"text":"<your question here>"}'`,
     `After posting the question, stop and wait. Do not guess, do not continue with placeholder assumptions. When the human replies in the card UI their response will be sent to you as a new invocation.`,
-    `Task: advance this card in the ${columnName} stage.`,
   );
+
+  if (card.column === 'implementation') {
+    lines.push(
+      `Task: implement the code now. Read the prior engineering plan from the log file above if it exists, then begin writing code immediately. Do not re-plan, do not summarize what you are about to do — start coding. Only ask a question if you hit a genuine blocker with no reasonable way to proceed.`,
+    );
+  } else {
+    lines.push(`Task: advance this card in the ${columnName} stage.`);
+  }
 
   return lines.join('\n\n');
 }
@@ -414,7 +421,9 @@ async function startCardSessionRun(params: {
   const project = card.projectId ? getProject(config, card.projectId) : null;
   let executionCwd = config.projectDir;
   if (project?.directory) {
-    executionCwd = path.resolve(config.projectDir, project.directory);
+    executionCwd = path.isAbsolute(project.directory)
+      ? project.directory
+      : path.resolve(config.projectDir, project.directory);
     if (!fs.existsSync(executionCwd)) {
       const errText = `Project directory not found: ${executionCwd}`;
       appendLog(logFile, `\n[missioncontrol] Error: ${errText}\n`);
@@ -576,6 +585,35 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         return { ...decorated, activity: [] };
       }),
     });
+  }
+
+  // GET /api/project-root — return the project root directory
+  if (url.pathname === '/api/project-root' && req.method === 'GET') {
+    return Response.json({ root: config.projectDir });
+  }
+
+  // GET /api/home-dir — return the user's home directory
+  if (url.pathname === '/api/home-dir' && req.method === 'GET') {
+    return Response.json({ home: os.homedir() });
+  }
+
+  // GET /api/directories — list subdirectories of any absolute path
+  if (url.pathname === '/api/directories' && req.method === 'GET') {
+    const queryPath = url.searchParams.get('path') || '';
+    const resolvedPath = queryPath && path.isAbsolute(queryPath)
+      ? path.resolve(queryPath)
+      : os.homedir();
+
+    try {
+      const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+      const subdirectories = entries
+        .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('.'))
+        .map(dirent => dirent.name)
+        .sort();
+      return Response.json({ path: resolvedPath, dirs: subdirectories });
+    } catch (err) {
+      return Response.json({ error: `Failed to read directory: ${err.message}` }, { status: 500 });
+    }
   }
 
   // POST /api/projects — create project
