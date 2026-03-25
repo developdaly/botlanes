@@ -32,15 +32,10 @@ import {
 } from './state';
 import { generateBoardHTML } from './ui';
 import { stripBasePath } from './base-path';
-import { mergeSessionEntry, resolveSessionTranscriptPath, resolveStorePath, updateSessionStore } from '/openclaw/packages/moltbot/node_modules/openclaw/src/config/sessions.ts';
-import { normalizeAgentId } from '/openclaw/packages/moltbot/node_modules/openclaw/src/routing/session-key.ts';
-import { loadGatewayModelCatalog, type GatewayModelChoice } from '/openclaw/packages/moltbot/node_modules/openclaw/src/gateway/server-model-catalog.ts';
-import { loadConfig } from '/openclaw/packages/moltbot/node_modules/openclaw/src/config/config.js';
-import { applyModelOverrideToSessionEntry } from '/openclaw/packages/moltbot/node_modules/openclaw/src/sessions/model-overrides.ts';
-import { resolveAllowedModelRef, resolveDefaultModelForAgent } from '/openclaw/packages/moltbot/node_modules/openclaw/src/agents/model-selection.ts';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as os from 'os';
 
 // ─── Config ─────────────────────────────────────────────────────
 const config = resolveConfig();
@@ -49,10 +44,10 @@ ensureStateDir(config);
 // ─── Base Path (for reverse proxy deployments) ──────────────────
 const MC_BASE_PATH = (process.env.MC_BASE_PATH || '').replace(/\/+$/, '');
 
-// ─── OpenClaw Durable Sessions ─────────────────────────────────
-const OPENCLAW_AGENT_ID = normalizeAgentId(process.env.MC_OPENCLAW_AGENT_ID || 'main');
-const OPENCLAW_SESSION_STORE = resolveStorePath(undefined, { agentId: OPENCLAW_AGENT_ID });
-const AGENT_TIMEOUT_SECONDS = String(parseInt(process.env.MC_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800);
+// ─── Claude CLI Integration ─────────────────────────────────────
+const CLAUDE_CONFIG_DIR = process.env.MC_CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude-personal');
+const CLAUDE_BIN = process.env.MC_CLAUDE_BIN || 'claude';
+const AGENT_TIMEOUT_MS = (parseInt(process.env.MC_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
 
 type ActiveRun = {
   runId: string;
@@ -61,21 +56,6 @@ type ActiveRun = {
 
 const ACTIVE_RUNS = new Map<string, ActiveRun>();
 let SERVER_PORT = 0;
-
-type ModelOption = {
-  ref: string;
-  label: string;
-  provider: string;
-  providerLabel: string;
-  model: string;
-  name: string;
-};
-
-type CardModelView = {
-  modelState: 'default' | 'selected' | 'unavailable';
-  modelLabel: string | null;
-  modelBadgeLabel: string | null;
-};
 
 type AttentionLevel = 'none' | 'output' | 'comment' | 'patrick';
 
@@ -86,18 +66,9 @@ type CardAttentionDerived = {
   attentionLevel: AttentionLevel;
 };
 
-type CardView = Card & CardModelView & {
+type CardView = Card & {
   derived: CardAttentionDerived;
 };
-
-let modelOptionsCache:
-  | {
-      expiresAt: number;
-      options: ModelOption[];
-      byRef: Map<string, ModelOption>;
-      defaultRef: string;
-    }
-  | null = null;
 
 const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_CARD = 20;
@@ -172,120 +143,10 @@ function findAttachment(card: Card, attachmentId: string): CardAttachment | null
   return (card.attachments || []).find((attachment) => attachment.id === attachmentId) || null;
 }
 
-function normalizeCardForResponse(card: Card, modelIndex?: Map<string, ModelOption>): CardView {
-  return decorateCard(card, modelIndex);
+function normalizeCardForResponse(card: Card): CardView {
+  return decorateCard(card);
 }
 
-function formatProviderLabel(provider: string): string {
-  const normalized = provider.trim().toLowerCase();
-  if (normalized === 'github-copilot') return 'GitHub Copilot';
-  if (normalized === 'openai-codex') return 'OpenAI Codex';
-  if (normalized === 'anthropic') return 'Anthropic';
-  if (normalized === 'google') return 'Google';
-  if (normalized === 'openai') return 'OpenAI';
-  return provider
-    .split(/[-_]/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-async function getModelOptions(): Promise<{
-  options: ModelOption[];
-  byRef: Map<string, ModelOption>;
-  defaultRef: string;
-}> {
-  const now = Date.now();
-  if (modelOptionsCache && modelOptionsCache.expiresAt > now) {
-    return modelOptionsCache;
-  }
-
-  const cfg = loadConfig();
-  const defaultModel = resolveDefaultModelForAgent({ cfg, agentId: OPENCLAW_AGENT_ID });
-  const defaultRef = `${defaultModel.provider}/${defaultModel.model}`;
-  const catalog = await loadGatewayModelCatalog();
-  const available: GatewayModelChoice[] = [];
-  for (const entry of catalog) {
-    const resolved = resolveAllowedModelRef({
-      cfg,
-      catalog,
-      raw: `${entry.provider}/${entry.id}`,
-      defaultProvider: defaultModel.provider,
-      defaultModel: defaultModel.model,
-    });
-    if (!('ref' in resolved)) continue;
-    available.push(entry);
-  }
-
-  const nameCounts = new Map<string, number>();
-  for (const entry of available) {
-    const name = (entry.name || entry.id).trim();
-    const key = name.toLowerCase();
-    nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
-  }
-
-  const options = available.map((entry) => {
-    const name = (entry.name || entry.id).trim();
-    const providerLabel = formatProviderLabel(entry.provider);
-    const useProviderSuffix = (nameCounts.get(name.toLowerCase()) || 0) > 1 || entry.provider === 'github-copilot';
-    const label = useProviderSuffix ? `${name} · ${providerLabel}` : name;
-    return {
-      ref: `${entry.provider}/${entry.id}`,
-      label,
-      provider: entry.provider,
-      providerLabel,
-      model: entry.id,
-      name,
-    } satisfies ModelOption;
-  });
-
-  const byRef = new Map(options.map((option) => [option.ref.toLowerCase(), option]));
-  modelOptionsCache = {
-    expiresAt: now + 30_000,
-    options,
-    byRef,
-    defaultRef,
-  };
-  return modelOptionsCache;
-}
-
-function decorateCardWithModelView(card: Card, modelIndex?: Map<string, ModelOption>): Card & CardModelView {
-  const rawRef = card.modelRef?.trim();
-  if (!rawRef) {
-    return {
-      ...card,
-      modelState: 'default',
-      modelLabel: null,
-      modelBadgeLabel: null,
-    };
-  }
-
-  if (!modelIndex) {
-    return {
-      ...card,
-      modelState: 'selected',
-      modelLabel: rawRef,
-      modelBadgeLabel: `Model: ${rawRef}`,
-    };
-  }
-
-  const option = modelIndex.get(rawRef.toLowerCase()) || null;
-  if (!option) {
-    return {
-      ...card,
-      modelState: 'unavailable',
-      modelLabel: null,
-      modelBadgeLabel: 'Model unavailable',
-    };
-  }
-
-  return {
-    ...card,
-    modelState: 'selected',
-    modelLabel: option.label,
-    modelBadgeLabel: `Model: ${option.label}`,
-  };
-}
 
 function getLogUpdatedAt(card: Card): string | null {
   if (!card.logFile) return null;
@@ -304,7 +165,7 @@ function getUnreadCommentCount(card: Card): number {
   }).length;
 }
 
-function decorateCard(card: Card, modelIndex?: Map<string, ModelOption>): CardView {
+function decorateCard(card: Card): CardView {
   const logUpdatedAt = getLogUpdatedAt(card);
   const hasUnreadOutput = !!logUpdatedAt && (!card.lastViewedAt || logUpdatedAt > card.lastViewedAt);
   const unreadCommentCount = getUnreadCommentCount(card);
@@ -318,7 +179,7 @@ function decorateCard(card: Card, modelIndex?: Map<string, ModelOption>): CardVi
           : 'none';
 
   return {
-    ...decorateCardWithModelView(card, modelIndex),
+    ...card,
     derived: {
       logUpdatedAt,
       hasUnreadOutput,
@@ -328,77 +189,8 @@ function decorateCard(card: Card, modelIndex?: Map<string, ModelOption>): CardVi
   };
 }
 
-async function applyCardModelToSession(card: Card): Promise<void> {
-  if (!card.sessionKey || !card.sessionId) return;
-
-  const cfg = loadConfig();
-  const configured = resolveDefaultModelForAgent({ cfg, agentId: OPENCLAW_AGENT_ID });
-  const modelOptions = await getModelOptions();
-
-  await updateSessionStore(OPENCLAW_SESSION_STORE, (store) => {
-    const existing = store[card.sessionKey] || mergeSessionEntry(undefined, {
-      sessionId: card.sessionId || crypto.randomUUID(),
-      updatedAt: Date.now(),
-      sessionFile: card.sessionFile || resolveSessionTranscriptPath(card.sessionId || crypto.randomUUID(), OPENCLAW_AGENT_ID),
-      label: `missioncontrol:${card.id}`,
-      displayName: `Mission Control — ${card.title}`,
-      subject: card.title,
-      origin: {
-        label: 'Mission Control',
-        provider: 'missioncontrol',
-        surface: 'kanban',
-      },
-      lastChannel: 'webchat',
-    });
-    const entry = mergeSessionEntry(existing, {
-      sessionId: card.sessionId,
-      updatedAt: Date.now(),
-      sessionFile: card.sessionFile || resolveSessionTranscriptPath(card.sessionId, OPENCLAW_AGENT_ID),
-      label: `missioncontrol:${card.id}`,
-      displayName: `Mission Control — ${card.title}`,
-      subject: card.title,
-    });
-
-    if (!card.modelRef) {
-      applyModelOverrideToSessionEntry({
-        entry,
-        selection: {
-          provider: configured.provider,
-          model: configured.model,
-          isDefault: true,
-        },
-      });
-    } else {
-      const option = modelOptions.byRef.get(card.modelRef.toLowerCase());
-      if (!option) {
-        throw new Error(`Saved model is not available: ${card.modelRef}`);
-      }
-      applyModelOverrideToSessionEntry({
-        entry,
-        selection: {
-          provider: option.provider,
-          model: option.model,
-          isDefault: option.ref === modelOptions.defaultRef,
-        },
-      });
-    }
-
-    store[card.sessionKey] = entry;
-    return entry;
-  });
-}
-
 function getColumnName(columnId: string): string {
   return COLUMNS.find((column) => column.id === columnId)?.name || columnId;
-}
-
-function shortId(value: string | null | undefined): string {
-  if (!value) return 'unknown';
-  return value.length > 8 ? value.slice(0, 8) : value;
-}
-
-function buildCardSessionKey(card: Card): string {
-  return `agent:${OPENCLAW_AGENT_ID}:missioncontrol:card:${card.id.toLowerCase()}`;
 }
 
 function buildCardApiUrl(cardId: string): string {
@@ -444,14 +236,12 @@ export function buildStagePrompt(params: {
   card: Card;
   skill: string;
   columnName: string;
-  firstTurn: boolean;
+  priorLogFile: string | null;
 }): string {
-  const { card, skill, columnName, firstTurn } = params;
+  const { card, skill, columnName, priorLogFile } = params;
   const lines = [
-    `Mission Control durable card session update.`,
-    firstTurn
-      ? `This is the first OpenClaw turn for this Mission Control card. Treat this session as the durable work thread for the card going forward.`
-      : `Resume the existing Mission Control work thread for this card. Continue from prior work in this same session instead of starting over.`,
+    `Mission Control stage run.`,
+    `You are the Claude agent executing work for this card. This is a fresh invocation for this stage.`,
     `Card title: ${card.title}`,
     `Card ID: ${card.id}`,
     `Current stage: ${columnName}`,
@@ -462,12 +252,16 @@ export function buildStagePrompt(params: {
     lines.push(`Card description:\n${card.description.trim()}`);
   }
 
+  if (priorLogFile) {
+    lines.push(`Prior stage output is saved in this file: ${priorLogFile}\nRead it to understand what was done in previous stages before taking action.`);
+  }
+
   if ((card.attachments || []).length > 0) {
     const attachmentLines = (card.attachments || []).map((attachment) => {
       const attachmentPath = getAttachmentDiskPath(card.id, attachment);
       return `[media attached: ${attachmentPath} (${attachment.mimeType})]`;
     });
-    lines.push(`Card attachments (images the agent can see):\n${attachmentLines.join('\n')}`);
+    lines.push(`Card attachments (images you can read):\n${attachmentLines.join('\n')}`);
   }
 
   if ((card.tags || []).length > 0) {
@@ -477,53 +271,11 @@ export function buildStagePrompt(params: {
   lines.push(
     `If you need human input to proceed, ask exactly one clear question by POSTing to the Mission Control callback URL in this environment:`,
     `curl -sS -X POST "$MC_CARD_API_URL/question" \\\n  -H "Authorization: Bearer $MC_AUTH_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data '{"text":"<your question here>"}'`,
-    `After posting the question, stop and wait. Do not guess, do not continue with placeholder assumptions, and do not ask the human anywhere else. When the human replies in the card UI, their response will be sent back into this same session so you can continue.`,
-    `Task: advance this card in the ${columnName} stage and leave the thread in a resumable state for the next stage move.`,
+    `After posting the question, stop and wait. Do not guess, do not continue with placeholder assumptions. When the human replies in the card UI their response will be sent to you as a new invocation.`,
+    `Task: advance this card in the ${columnName} stage.`,
   );
 
   return lines.join('\n\n');
-}
-
-async function ensureCardSession(config: MCConfig, card: Card): Promise<Card> {
-  const sessionId = card.sessionId || crypto.randomUUID();
-  const sessionKey = card.sessionKey || buildCardSessionKey(card);
-  const sessionFile = card.sessionFile || resolveSessionTranscriptPath(sessionId, OPENCLAW_AGENT_ID);
-
-  await updateSessionStore(OPENCLAW_SESSION_STORE, (store) => {
-    store[sessionKey] = mergeSessionEntry(store[sessionKey], {
-      sessionId,
-      updatedAt: Date.now(),
-      sessionFile,
-      label: `missioncontrol:${card.id}`,
-      displayName: `Mission Control — ${card.title}`,
-      subject: card.title,
-      origin: {
-        label: 'Mission Control',
-        provider: 'missioncontrol',
-        surface: 'kanban',
-      },
-      lastChannel: 'webchat',
-    });
-    return store[sessionKey];
-  });
-
-  const linkedCard = updateCard(config, card.id, {
-    sessionId,
-    sessionKey,
-    sessionFile,
-  });
-
-  if (!card.sessionId || !card.sessionKey) {
-    addActivity(
-      config,
-      card.id,
-      'session_linked',
-      `Linked durable OpenClaw session ${shortId(sessionId)} (${sessionKey})`,
-      { actor: 'system', sessionId, sessionKey },
-    );
-  }
-
-  return linkedCard;
 }
 
 function cancelActiveRun(cardId: string, reason?: string): void {
@@ -550,16 +302,17 @@ function attachRunExitHandler(params: {
   cardId: string;
   runId: string;
   proc: Bun.Subprocess;
+  timeoutHandle: ReturnType<typeof setTimeout>;
   logFile: string;
   columnName: string;
-  sessionId: string | null;
   column: string;
   skill: string | null;
 }): void {
-  const { cardId, runId, proc, logFile, columnName, sessionId, column, skill } = params;
+  const { cardId, runId, proc, timeoutHandle, logFile, columnName, column, skill } = params;
 
   void proc.exited
     .then((exitCode) => {
+      clearTimeout(timeoutHandle);
       const active = ACTIVE_RUNS.get(cardId);
       if (!active || active.runId !== runId) {
         return;
@@ -579,8 +332,8 @@ function attachRunExitHandler(params: {
       const activityType = exitCode === 0 ? 'run_completed' : 'run_failed';
       const activityText =
         exitCode === 0
-          ? `${columnName} completed in durable session ${shortId(sessionId)}`
-          : `${columnName} failed in durable session ${shortId(sessionId)} (exit ${exitCode})`;
+          ? `${columnName} completed`
+          : `${columnName} failed (exit ${exitCode})`;
 
       appendLog(logFile, `\n[missioncontrol] Process exited with code ${exitCode}\n`);
       setCardStatus(config, cardId, status, {
@@ -594,6 +347,7 @@ function attachRunExitHandler(params: {
       });
     })
     .catch((err: any) => {
+      clearTimeout(timeoutHandle);
       const active = ACTIVE_RUNS.get(cardId);
       if (!active || active.runId !== runId) {
         return;
@@ -617,13 +371,10 @@ async function startCardSessionRun(params: {
   skill: string;
 }): Promise<void> {
   const { config, skill } = params;
-  const firstTurn = !params.card.sessionId;
-  let card = await ensureCardSession(config, params.card);
-  await applyCardModelToSession(card);
-  card = markAttachmentsUsed(card, new Date().toISOString());
+  let card = markAttachmentsUsed(params.card, new Date().toISOString());
   const columnName = getColumnName(card.column);
-  const logFile =
-    card.logFile || path.join(config.logsDir, `${card.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+  const priorLogFile = card.logFile;
+  const logFile = path.join(config.logsDir, `${card.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
   cancelActiveRun(card.id, `stage moved to ${columnName}`);
 
@@ -639,8 +390,8 @@ async function startCardSessionRun(params: {
     config,
     card.id,
     'run_started',
-    `${firstTurn ? 'Started' : 'Resumed'} ${columnName} in durable OpenClaw session ${shortId(card.sessionId)}`,
-    { column: card.column, skill, sessionId: card.sessionId || undefined },
+    `Started ${columnName} via Claude`,
+    { column: card.column, skill },
   );
 
   appendLog(
@@ -649,30 +400,50 @@ async function startCardSessionRun(params: {
       `[started] ${new Date().toISOString()}\n` +
       `[card] ${card.title} (${card.id})\n` +
       `[stage] ${columnName}\n` +
-      `[skill] ${skill}\n` +
-      `[sessionId] ${card.sessionId}\n` +
-      `[sessionKey] ${card.sessionKey}\n\n`,
+      `[skill] ${skill}\n\n`,
   );
 
   const prompt = buildStagePrompt({
     card,
     skill,
     columnName,
-    firstTurn,
+    priorLogFile,
   });
 
+  const { getProject } = await import('./state');
+  const project = card.projectId ? getProject(config, card.projectId) : null;
+  let executionCwd = config.projectDir;
+  if (project?.directory) {
+    executionCwd = path.resolve(config.projectDir, project.directory);
+    if (!fs.existsSync(executionCwd)) {
+      const errText = `Project directory not found: ${executionCwd}`;
+      appendLog(logFile, `\n[missioncontrol] Error: ${errText}\n`);
+      setCardStatus(config, card.id, 'failed', { column: card.column, skill });
+      addActivity(config, card.id, 'run_failed', errText, { column: card.column, skill });
+      return;
+    }
+  }
+
   const proc = Bun.spawn(
-    ['openclaw', 'agent', '--session-id', String(card.sessionId), '--message', prompt, '--timeout', AGENT_TIMEOUT_SECONDS],
+    [CLAUDE_BIN, '-p', '--output-format', 'text', '--dangerously-skip-permissions'],
     {
-      cwd: config.projectDir,
-      env: buildCardAgentEnv(card.id),
+      cwd: executionCwd,
+      env: { ...buildCardAgentEnv(card.id), CLAUDE_CONFIG_DIR },
       stdout: 'pipe',
       stderr: 'pipe',
+      stdin: new TextEncoder().encode(prompt),
     },
   );
 
   const runId = crypto.randomUUID();
   ACTIVE_RUNS.set(card.id, { runId, proc });
+
+  const timeoutHandle = setTimeout(() => {
+    const active = ACTIVE_RUNS.get(card.id);
+    if (!active || active.runId !== runId) return;
+    appendLog(logFile, `\n[missioncontrol] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
+    cancelActiveRun(card.id, 'timeout');
+  }, AGENT_TIMEOUT_MS);
 
   void pipeStreamToLog(proc.stdout, logFile);
   void pipeStreamToLog(proc.stderr, logFile, '[stderr] ');
@@ -680,9 +451,9 @@ async function startCardSessionRun(params: {
     cardId: card.id,
     runId,
     proc,
+    timeoutHandle,
     logFile,
     columnName,
-    sessionId: card.sessionId,
     column: card.column,
     skill,
   });
@@ -794,39 +565,66 @@ function createLogStream(logFilePath: string): Response {
 
 // ─── API Handler ────────────────────────────────────────────────
 export async function handleApiRoute(url: URL, req: Request, config: MCConfig): Promise<Response> {
-  // GET /api/state — return columns + cards
+  // GET /api/state — return columns + cards + projects
   if (url.pathname === '/api/state' && req.method === 'GET') {
     const state = loadState(config);
-    let modelIndex: Map<string, ModelOption> | undefined;
-    try {
-      modelIndex = (await getModelOptions()).byRef;
-    } catch {}
     return Response.json({
       columns: COLUMNS,
+      projects: state.projects || [],
       cards: state.cards.map((card) => {
-        const decorated = decorateCard(card, modelIndex);
+        const decorated = decorateCard(card);
         return { ...decorated, activity: [] };
       }),
     });
   }
 
-  // GET /api/models — configured model options for the card modal
-  if (url.pathname === '/api/models' && req.method === 'GET') {
+  // POST /api/projects — create project
+  if (url.pathname === '/api/projects' && req.method === 'POST') {
+    const body = await req.json();
+    if (!body.name || !body.directory) {
+      return Response.json({ error: 'name and directory are required' }, { status: 400 });
+    }
+    const { createProject } = await import('./state');
+    const project = createProject(config, body.name, body.directory, body.aiCli);
+    return Response.json(project, { status: 201 });
+  }
+
+  // PATCH /api/projects/:id — update project
+  const projectPatchMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (projectPatchMatch && req.method === 'PATCH') {
+    const projectId = projectPatchMatch[1];
+    const body = await req.json();
+    const { updateProject } = await import('./state');
     try {
-      const modelOptions = await getModelOptions();
-      return Response.json({
-        defaultRef: modelOptions.defaultRef,
-        options: modelOptions.options,
-      });
+      const updates: any = {};
+      if (typeof body.name === 'string') updates.name = body.name;
+      if (typeof body.directory === 'string') updates.directory = body.directory;
+      if (typeof body.aiCli === 'string') updates.aiCli = body.aiCli;
+      const project = updateProject(config, projectId, updates);
+      return Response.json(project);
     } catch (err: any) {
-      return Response.json({ error: err.message || 'Failed to load model options' }, { status: 503 });
+      return Response.json({ error: err.message }, { status: 404 });
+    }
+  }
+
+  // DELETE /api/projects/:id — delete project
+  const projectDeleteMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (projectDeleteMatch && req.method === 'DELETE') {
+    const projectId = projectDeleteMatch[1];
+    const { deleteProject } = await import('./state');
+    try {
+      deleteProject(config, projectId);
+      return Response.json({ ok: true });
+    } catch (err: any) {
+      return Response.json({ error: err.message }, { status: 404 });
     }
   }
 
   // POST /api/cards — create card
   if (url.pathname === '/api/cards' && req.method === 'POST') {
     const body = await req.json();
-    const card = createCard(config, body.title, body.description, body.tags);
+    const projectId = typeof body.projectId === 'string' && body.projectId ? body.projectId : null;
+    const card = createCard(config, body.title, projectId, body.description, body.tags);
     return Response.json(card, { status: 201 });
   }
 
@@ -966,7 +764,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
             column: body.column,
             skill: result.skill || undefined,
           });
-          addActivity(config, cardId, 'run_failed', `Failed to start durable session: ${err.message}`, {
+          addActivity(config, cardId, 'run_failed', `Failed to start Claude: ${err.message}`, {
             column: body.column,
             skill: result.skill || undefined,
           });
@@ -990,9 +788,10 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       }
 
       const updates: Partial<
-        Pick<Card, 'title' | 'description' | 'tags' | 'modelRef' | 'attentionMode' | 'attentionReason' | 'attentionUpdatedAt'>
+        Pick<Card, 'projectId' | 'title' | 'description' | 'tags' | 'attentionMode' | 'attentionReason' | 'attentionUpdatedAt'>
       > = {};
       let requestedStatus: Card['status'] | null = null;
+      if ('projectId' in body) updates.projectId = typeof body.projectId === 'string' && body.projectId ? body.projectId : null;
       if ('title' in body) updates.title = typeof body.title === 'string' ? body.title : existing.title;
       if ('description' in body) {
         updates.description = typeof body.description === 'string' ? body.description : existing.description;
@@ -1001,28 +800,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         updates.tags = Array.isArray(body.tags)
           ? body.tags.map((tag: unknown) => String(tag).trim()).filter(Boolean)
           : existing.tags;
-      }
-      if ('modelRef' in body) {
-        const rawModel = body.modelRef == null ? '' : String(body.modelRef).trim();
-        if (!rawModel || rawModel.toLowerCase() === 'default') {
-          updates.modelRef = null;
-        } else {
-          const cfg = loadConfig();
-          const catalog = await loadGatewayModelCatalog();
-          const configured = resolveDefaultModelForAgent({ cfg, agentId: OPENCLAW_AGENT_ID });
-          const resolved = resolveAllowedModelRef({
-            cfg,
-            catalog,
-            raw: rawModel,
-            defaultProvider: configured.provider,
-            defaultModel: configured.model,
-          });
-          if (!('ref' in resolved)) {
-            return Response.json({ error: resolved.error }, { status: 400 });
-          }
-          const canonicalRef = `${resolved.ref.provider}/${resolved.ref.model}`;
-          updates.modelRef = canonicalRef === `${configured.provider}/${configured.model}` ? null : canonicalRef;
-        }
       }
       if ('status' in body) {
         if (!isCardStatus(body.status)) {
@@ -1049,9 +826,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       }
 
       let card = updateCard(config, cardId, updates);
-      if ('modelRef' in updates) {
-        await applyCardModelToSession(card);
-      }
       if (requestedStatus && requestedStatus !== existing.status) {
         card = setCardStatus(config, cardId, requestedStatus, {
           column: card.column,
@@ -1059,11 +833,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         });
       }
 
-      let modelIndex: Map<string, ModelOption> | undefined;
-      try {
-        modelIndex = (await getModelOptions()).byRef;
-      } catch {}
-      return Response.json(decorateCard(card, modelIndex));
+      return Response.json(decorateCard(card));
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 400 });
     }
@@ -1079,11 +849,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         return Response.json({ error: 'Card not found' }, { status: 404 });
       }
       const card = updateCard(config, cardId, { lastViewedAt: new Date().toISOString() });
-      let modelIndex: Map<string, ModelOption> | undefined;
-      try {
-        modelIndex = (await getModelOptions()).byRef;
-      } catch {}
-      return Response.json(decorateCard(card, modelIndex));
+      return Response.json(decorateCard(card));
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 400 });
     }
@@ -1099,7 +865,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     const card = getCard(config, cardId);
     if (!card) return Response.json({ error: 'Card not found' }, { status: 404 });
-    if (!card.sessionId) return Response.json({ error: 'Card has no bound session' }, { status: 400 });
 
     const now = new Date().toISOString();
     updateCard(config, cardId, {
@@ -1132,17 +897,13 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     const currentCard = getCard(config, cardId);
     if (!currentCard) return Response.json({ error: 'Card not found' }, { status: 404 });
-    if (!currentCard.sessionId) return Response.json({ error: 'Card has no bound session' }, { status: 400 });
     if (currentCard.status !== 'awaiting_human') {
       return Response.json({ error: 'Card is not awaiting human input' }, { status: 400 });
     }
 
-    await applyCardModelToSession(currentCard);
     cancelActiveRun(cardId, 'human replied');
 
-    const logFile =
-      currentCard.logFile ||
-      path.join(config.logsDir, `${currentCard.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+    const logFile = path.join(config.logsDir, `${currentCard.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
     let resumedCard = updateCard(config, cardId, {
       logFile,
       attentionMode: 'none',
@@ -1165,8 +926,8 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       config,
       cardId,
       'run_started',
-      `Resumed ${columnName} after human reply in durable OpenClaw session ${shortId(resumedCard.sessionId)}`,
-      { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined, sessionId: resumedCard.sessionId || undefined },
+      `Resumed ${columnName} after human reply via Claude`,
+      { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined },
     );
 
     appendLog(
@@ -1175,44 +936,73 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         `[received] ${new Date().toISOString()}\n` +
         `[card] ${resumedCard.title} (${resumedCard.id})\n` +
         `[stage] ${columnName}\n` +
-        `[sessionId] ${resumedCard.sessionId}\n` +
         `[human-reply] ${text}\n\n`,
     );
 
     const prompt = [
-      'Mission Control durable card session update.',
-      'Resume the existing Mission Control work thread for this card. Continue from prior work in this same session instead of starting over.',
+      'Mission Control stage run — resuming after human reply.',
+      'A human has answered your previous question. Use their reply to continue the work.',
       `Card title: ${resumedCard.title}`,
       `Card ID: ${resumedCard.id}`,
       `Current stage: ${columnName}`,
       resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
+      resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
       `Human reply to your question:\n${text}`,
-      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the Mission Control callback URL and then stop.`,
+      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the Mission Control callback URL (MC_CARD_API_URL / MC_AUTH_TOKEN env vars) and then stop.`,
     ]
       .filter(Boolean)
       .join('\n\n');
 
+    const { getProject } = await import('./state');
+    const project = resumedCard.projectId ? getProject(config, resumedCard.projectId) : null;
+    let executionCwd = config.projectDir;
+    if (project?.directory) {
+      executionCwd = path.resolve(config.projectDir, project.directory);
+      if (!fs.existsSync(executionCwd)) {
+        const errText = `Project directory not found: ${executionCwd}`;
+        appendLog(logFile, `\n[missioncontrol] Error: ${errText}\n`);
+        setCardStatus(config, cardId, 'failed', { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
+        addActivity(config, cardId, 'run_failed', errText, { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
+        return Response.json({ error: errText }, { status: 400 });
+      }
+    }
+
+    const isGemini = project?.aiCli === 'gemini';
+    const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
+    const args = isGemini
+      ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
+      : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
+
     const proc = Bun.spawn(
-      ['openclaw', 'agent', '--session-id', String(resumedCard.sessionId), '--message', prompt, '--timeout', AGENT_TIMEOUT_SECONDS],
+      [bin, ...args],
       {
-        cwd: config.projectDir,
-        env: buildCardAgentEnv(cardId),
+        cwd: executionCwd,
+        env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
         stdout: 'pipe',
         stderr: 'pipe',
+        stdin: new TextEncoder().encode(prompt),
       },
     );
 
     const runId = crypto.randomUUID();
     ACTIVE_RUNS.set(cardId, { runId, proc });
+
+    const timeoutHandle = setTimeout(() => {
+      const active = ACTIVE_RUNS.get(cardId);
+      if (!active || active.runId !== runId) return;
+      appendLog(logFile, `\n[missioncontrol] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
+      cancelActiveRun(cardId, 'timeout');
+    }, AGENT_TIMEOUT_MS);
+
     void pipeStreamToLog(proc.stdout, logFile);
     void pipeStreamToLog(proc.stderr, logFile, '[stderr] ');
     attachRunExitHandler({
       cardId,
       runId,
       proc,
+      timeoutHandle,
       logFile,
       columnName,
-      sessionId: resumedCard.sessionId,
       column: resumedCard.column,
       skill: resumedCard.skillTriggered,
     });
@@ -1377,7 +1167,7 @@ async function start() {
             uptime: Math.floor((Date.now() - startTime) / 1000),
             runtime: `Bun ${Bun.version}`,
             cards: state.cards.length,
-            executionMode: 'durable-openclaw-session',
+            executionMode: 'claude-cli',
             authRequired: !!MC_PASSWORD,
           });
         }
@@ -1404,6 +1194,21 @@ async function start() {
         // Auth check — no auth required
         if (routedPath === '/auth/check') {
           return Response.json({ authenticated: isAuthenticated(req) });
+        }
+
+        // Static assets — no auth
+        if (routedPath.startsWith('/public/')) {
+          const safePath = routedPath.substring(8).replace(/\.\./g, '');
+          const filePath = path.join(import.meta.dir, 'public', safePath);
+          const file = Bun.file(filePath);
+          if (await file.exists()) {
+            return new Response(file, {
+              headers: {
+                'Cache-Control': 'public, max-age=3600',
+              },
+            });
+          }
+          return new Response('Not found', { status: 404 });
         }
 
         // Board HTML — always served (JS handles login state)
@@ -1449,7 +1254,7 @@ async function start() {
   console.log(`[missioncontrol] Server running on http://0.0.0.0:${port} (PID: ${process.pid})`);
   console.log(`[missioncontrol] State file: ${config.serverStateFile}`);
   console.log(`[missioncontrol] Board file: ${config.boardStateFile}`);
-  console.log(`[missioncontrol] OpenClaw session store: ${OPENCLAW_SESSION_STORE}`);
+  console.log(`[missioncontrol] Claude config dir: ${CLAUDE_CONFIG_DIR}`);
   if (MC_PASSWORD) {
     console.log(`[missioncontrol] Password auth enabled`);
   } else {

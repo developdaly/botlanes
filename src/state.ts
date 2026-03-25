@@ -5,20 +5,20 @@ import type { MCConfig } from './config';
 
 // Fixed pipeline columns from AGENTS.md
 export const COLUMNS = [
-  { id: 'backlog', name: 'Backlog', skill: null },
-  { id: 'office-hours', name: 'Office Hours', skill: '/office-hours' },
-  { id: 'ceo-review', name: 'CEO Review', skill: '/plan-ceo-review' },
-  { id: 'eng-review', name: 'Eng Review', skill: '/plan-eng-review' },
-  { id: 'design-review', name: 'Design Review', skill: '/plan-design-review' },
-  { id: 'design', name: 'Design', skill: '/design-consultation' },
-  { id: 'implementation', name: 'Implementation', skill: null },
-  { id: 'code-review', name: 'Code Review', skill: '/review' },
-  { id: 'debug', name: 'Debug', skill: '/debug' },
-  { id: 'qa', name: 'QA', skill: '/qa' },
-  { id: 'ship', name: 'Ship', skill: '/ship' },
-  { id: 'docs', name: 'Docs', skill: '/document-release' },
-  { id: 'retro', name: 'Retro', skill: '/retro' },
-  { id: 'done', name: 'Done', skill: null },
+  { id: 'backlog', name: 'Backlog', skill: null, summary: 'New tasks waiting to be picked up.', detail: 'Raw incoming work lives here until someone moves it into the active workflow.', outcome: null, isCoreFlow: false },
+  { id: 'office-hours', name: 'Office Hours', skill: '/office-hours', summary: 'Start here. Reframe the problem before anyone writes code.', detail: 'Six forcing questions challenge the framing, surface better alternatives, and generate the design doc downstream stages build on.', outcome: 'Design Doc', isCoreFlow: true },
+  { id: 'ceo-review', name: 'CEO Review', skill: '/plan-ceo-review', summary: 'Pressure-test the idea and make sure the scope is worth shipping.', detail: 'Strategy review: challenge the plan, sharpen the product call, and decide whether to expand, hold, or cut scope.', outcome: 'Scope Decision', isCoreFlow: false },
+  { id: 'eng-review', name: 'Eng Review', skill: '/plan-eng-review', summary: 'Lock architecture, edge cases, tests, and performance expectations.', detail: 'Engineering review validates the execution plan so implementation starts with the right shape, not guesses.', outcome: 'Engineering Plan', isCoreFlow: true },
+  { id: 'design-review', name: 'Design Review', skill: '/plan-design-review', summary: 'Critique the UX direction and tighten the interaction model.', detail: 'Design review closes the gaps in hierarchy, states, responsiveness, and trust before pixels get coded.', outcome: 'Design Critique', isCoreFlow: false },
+  { id: 'design', name: 'Design', skill: '/design-consultation', summary: 'Define the design system: typography, color, layout, spacing, motion.', detail: 'This stage produces the shared visual language so the implementation feels intentional instead of improvised.', outcome: 'DESIGN.md', isCoreFlow: false },
+  { id: 'implementation', name: 'Implementation', skill: null, summary: 'Write the code for the chosen plan.', detail: 'This is where the approved plan turns into working product changes in the codebase.', outcome: 'Code', isCoreFlow: true },
+  { id: 'code-review', name: 'Code Review', skill: '/review', summary: 'Catch structural issues before landing.', detail: 'Pre-landing review looks for correctness, safety, and quality issues while the change is still cheap to fix.', outcome: 'Review Verdict', isCoreFlow: true },
+  { id: 'debug', name: 'Debug', skill: '/debug', summary: 'Investigate what broke and why.', detail: 'Use this when behavior is wrong, unclear, or flaky and the team needs a root-cause pass instead of more guessing.', outcome: 'Fix + Root Cause', isCoreFlow: false },
+  { id: 'qa', name: 'QA', skill: '/qa', summary: 'Test the feature like a user and verify fixes.', detail: 'QA checks the real user flow, finds regressions, and confirms the implementation actually works outside the happy path.', outcome: 'QA Report', isCoreFlow: true },
+  { id: 'ship', name: 'Ship', skill: '/ship', summary: 'Merge, version, changelog, push, and open the PR.', detail: 'This is the release step: package the work cleanly so it is ready to land and move forward with confidence.', outcome: 'Merged PR', isCoreFlow: true },
+  { id: 'docs', name: 'Docs', skill: '/document-release', summary: 'Update project docs to match what shipped.', detail: 'Sync README, architecture notes, and release documentation so future readers see the truth, not stale intent.', outcome: 'Updated Docs', isCoreFlow: false },
+  { id: 'retro', name: 'Retro', skill: '/retro', summary: 'Capture lessons from the work and the process.', detail: 'Use retrospective time to distill what worked, what hurt, and what should change next time.', outcome: 'Retro Report', isCoreFlow: false },
+  { id: 'done', name: 'Done', skill: null, summary: 'Finished work that is ready to archive visually.', detail: 'Completed cards live here so the active pipeline stays focused on work still in motion.', outcome: null, isCoreFlow: false },
 ] as const;
 
 export type ColumnId = (typeof COLUMNS)[number]['id'];
@@ -97,6 +97,7 @@ export interface CardAttachment {
 
 export interface Card {
   id: string;
+  projectId: string | null;
   title: string;
   description: string;
   column: ColumnId;
@@ -108,24 +109,30 @@ export interface Card {
   designDocs: string[];
   tags: string[];
   attachments: CardAttachment[];
-  modelRef: string | null;
   lastViewedAt: string | null;
   attentionMode: AttentionMode;
   attentionReason: string | null;
   attentionUpdatedAt: string | null;
   activity: ActivityEntry[];
-  sessionId: string | null;
-  sessionKey: string | null;
-  sessionFile: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  directory: string;
+  createdAt: string;
+  aiCli?: 'claude' | 'gemini';
 }
 
 export interface BoardState {
   version: 1;
+  projects: Project[];
   cards: Card[];
 }
 
 const DEFAULT_STATE: BoardState = {
   version: 1,
+  projects: [],
   cards: [],
 };
 
@@ -272,6 +279,17 @@ function normalizeAttachment(raw: any): CardAttachment | null {
   };
 }
 
+function normalizeProject(raw: any): Project | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : null;
+  const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : null;
+  const directory = typeof raw.directory === 'string' && raw.directory.trim() ? raw.directory.trim() : null;
+  const createdAt = typeof raw.createdAt === 'string' && raw.createdAt.trim() ? raw.createdAt.trim() : new Date().toISOString();
+  const aiCli = raw.aiCli === 'gemini' ? 'gemini' : 'claude';
+  if (!id || !name || !directory) return null;
+  return { id, name, directory, createdAt, aiCli };
+}
+
 function normalizeCard(raw: any): Card {
   const now = new Date().toISOString();
   const column = COLUMNS.some((col) => col.id === raw?.column) ? raw.column : 'backlog';
@@ -279,9 +297,11 @@ function normalizeCard(raw: any): Card {
   const attentionMode = normalizeAttentionMode(raw?.attentionMode);
   const attentionReason =
     typeof raw?.attentionReason === 'string' && raw.attentionReason.trim() ? raw.attentionReason.trim() : null;
+  const projectId = typeof raw?.projectId === 'string' && raw.projectId.trim() ? raw.projectId.trim() : null;
 
   return {
     id: typeof raw?.id === 'string' && raw.id ? raw.id : crypto.randomUUID(),
+    projectId,
     title: typeof raw?.title === 'string' ? raw.title : 'Untitled',
     description: typeof raw?.description === 'string' ? raw.description : '',
     column,
@@ -294,16 +314,12 @@ function normalizeCard(raw: any): Card {
     designDocs: Array.isArray(raw?.designDocs) ? raw.designDocs.map(String) : [],
     tags: Array.isArray(raw?.tags) ? raw.tags.map(String) : [],
     attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(normalizeAttachment).filter(Boolean) as CardAttachment[] : [],
-    modelRef: typeof raw?.modelRef === 'string' && raw.modelRef.trim() ? raw.modelRef.trim() : null,
     lastViewedAt: typeof raw?.lastViewedAt === 'string' && raw.lastViewedAt ? raw.lastViewedAt : null,
     attentionMode,
     attentionReason: attentionMode === 'waiting_on_patrick' ? attentionReason : null,
     attentionUpdatedAt:
       typeof raw?.attentionUpdatedAt === 'string' && raw.attentionUpdatedAt ? raw.attentionUpdatedAt : null,
     activity: Array.isArray(raw?.activity) ? raw.activity.map(normalizeActivityEntry) : [],
-    sessionId: typeof raw?.sessionId === 'string' && raw.sessionId ? raw.sessionId : null,
-    sessionKey: typeof raw?.sessionKey === 'string' && raw.sessionKey ? raw.sessionKey : null,
-    sessionFile: typeof raw?.sessionFile === 'string' && raw.sessionFile ? raw.sessionFile : null,
   };
 }
 
@@ -317,11 +333,12 @@ export function loadState(config: MCConfig): BoardState {
     const parsed = JSON.parse(raw) as Partial<BoardState>;
     return {
       version: 1,
+      projects: Array.isArray(parsed?.projects) ? parsed.projects.map(normalizeProject).filter(Boolean) as Project[] : [],
       cards: Array.isArray(parsed?.cards) ? parsed.cards.map(normalizeCard) : [],
     };
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-      return { ...DEFAULT_STATE, cards: [] };
+      return { ...DEFAULT_STATE, projects: [], cards: [] };
     }
     throw err;
   }
@@ -381,12 +398,14 @@ export function addActivity(
 export function createCard(
   config: MCConfig,
   title: string,
+  projectId: string | null = null,
   description: string = '',
   tags: string[] = [],
 ): Card {
   const now = new Date().toISOString();
   const card: Card = {
     id: crypto.randomUUID(),
+    projectId,
     title,
     description,
     column: 'backlog',
@@ -398,15 +417,11 @@ export function createCard(
     designDocs: [],
     tags,
     attachments: [],
-    modelRef: null,
     lastViewedAt: null,
     attentionMode: 'none',
     attentionReason: null,
     attentionUpdatedAt: null,
     activity: [],
-    sessionId: null,
-    sessionKey: null,
-    sessionFile: null,
   };
 
   pushActivity(card, 'card_created', 'Card created');
@@ -502,18 +517,15 @@ export function updateCard(
   updates: Partial<
     Pick<
       Card,
+      | 'projectId'
       | 'title'
       | 'description'
       | 'tags'
       | 'attachments'
-      | 'modelRef'
       | 'status'
       | 'logFile'
       | 'designDocs'
       | 'skillTriggered'
-      | 'sessionId'
-      | 'sessionKey'
-      | 'sessionFile'
       | 'lastViewedAt'
       | 'attentionMode'
       | 'attentionReason'
@@ -591,4 +603,42 @@ export function getCard(config: MCConfig, cardId: string): Card | null {
 export function getPendingCards(config: MCConfig): Card[] {
   const state = loadState(config);
   return state.cards.filter((c) => c.status === 'pending');
+}
+
+export function createProject(config: MCConfig, name: string, directory: string, aiCli: 'claude' | 'gemini' = 'claude'): Project {
+  const state = loadState(config);
+  const project: Project = {
+    id: crypto.randomUUID(),
+    name,
+    directory,
+    createdAt: new Date().toISOString(),
+    aiCli,
+  };
+  state.projects.push(project);
+  saveState(config, state);
+  return project;
+}
+
+export function updateProject(config: MCConfig, projectId: string, updates: Partial<Pick<Project, 'name' | 'directory' | 'aiCli'>>): Project {
+  const state = loadState(config);
+  const idx = state.projects.findIndex((p) => p.id === projectId);
+  if (idx === -1) throw new Error(`Project not found: ${projectId}`);
+  Object.assign(state.projects[idx], updates);
+  saveState(config, state);
+  return state.projects[idx];
+}
+
+export function deleteProject(config: MCConfig, projectId: string): void {
+  const state = loadState(config);
+  const idx = state.projects.findIndex((p) => p.id === projectId);
+  if (idx === -1) throw new Error(`Project not found: ${projectId}`);
+  state.projects.splice(idx, 1);
+  // Cascade delete cards
+  state.cards = state.cards.filter((c) => c.projectId !== projectId);
+  saveState(config, state);
+}
+
+export function getProject(config: MCConfig, projectId: string): Project | null {
+  const state = loadState(config);
+  return state.projects.find((p) => p.id === projectId) ?? null;
 }
