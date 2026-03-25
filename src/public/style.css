@@ -271,6 +271,304 @@ body {
   color: #F8FAFC;
 }
 
+/* Card detail modal — wider, structured layout */
+.card-modal-panel {
+  background: #1E293B;
+  border-radius: 12px;
+  width: 94%;
+  max-width: 960px;
+  max-height: 92vh;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.card-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #334155;
+  gap: 12px;
+}
+
+.card-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-modal-title-input {
+  background: transparent;
+  border: none;
+  font-size: 17px;
+  font-weight: 700;
+  color: #F8FAFC;
+  width: 100%;
+  outline: none;
+  padding: 0;
+}
+
+.card-modal-title-input:focus {
+  box-shadow: none;
+}
+
+.card-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 20px;
+  background: #172033;
+  border-bottom: 1px solid #334155;
+  flex-wrap: wrap;
+}
+
+.card-modal-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-modal-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.card-modal-meta-value {
+  font-size: 13px;
+  color: #CBD5E1;
+}
+
+.card-modal-meta-select {
+  background: transparent;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: #CBD5E1;
+  font-size: 12px;
+  outline: none;
+}
+
+.card-modal-meta-select:focus {
+  border-color: #3B82F6;
+}
+
+/* Agent question banner */
+.card-modal-question {
+  margin: 16px 20px 0;
+  background: rgba(249, 115, 22, 0.06);
+  border: 1px solid rgba(249, 115, 22, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.card-modal-question-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #FB923C;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(249, 115, 22, 0.08);
+  border-bottom: 1px solid rgba(249, 115, 22, 0.12);
+}
+
+.card-modal-question-body {
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #E2E8F0;
+}
+
+.card-modal-question-reply {
+  padding: 12px 16px 14px;
+  border-top: 1px solid rgba(249, 115, 22, 0.12);
+  background: rgba(249, 115, 22, 0.04);
+}
+
+/* Body two-column */
+.card-modal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.card-modal-left {
+  padding: 20px;
+  border-right: 1px solid #334155;
+}
+
+.card-modal-right {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-modal-right .activity-trail {
+  flex: 1;
+  max-height: 400px;
+}
+
+.card-modal-log {
+  padding: 16px 20px 20px;
+  border-top: 1px solid #334155;
+}
+
+@media (max-width: 768px) {
+  .card-modal-body {
+    grid-template-columns: 1fr;
+  }
+  .card-modal-left {
+    border-right: none;
+    border-bottom: 1px solid #334155;
+  }
+  .card-modal-panel {
+    max-width: 100%;
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}
+
+/* Markdown content styling */
+.md-content {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #E2E8F0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.md-content p {
+  margin: 0 0 0.6em;
+}
+
+.md-content p:last-child {
+  margin-bottom: 0;
+}
+
+.md-content h1, .md-content h2, .md-content h3,
+.md-content h4, .md-content h5, .md-content h6 {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+  color: #F8FAFC;
+  line-height: 1.3;
+}
+
+.md-content h1 { font-size: 1.3em; }
+.md-content h2 { font-size: 1.15em; }
+.md-content h3 { font-size: 1.05em; }
+
+.md-content h1:first-child, .md-content h2:first-child, .md-content h3:first-child {
+  margin-top: 0;
+}
+
+.md-content code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: #93C5FD;
+}
+
+.md-content pre {
+  background: #0F172A;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: #E2E8F0;
+}
+
+.md-content ul, .md-content ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+
+.md-content li {
+  margin: 0.2em 0;
+}
+
+.md-content blockquote {
+  border-left: 3px solid #475569;
+  margin: 0.6em 0;
+  padding: 4px 12px;
+  color: #94A3B8;
+}
+
+.md-content a {
+  color: #60A5FA;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-content a:hover {
+  color: #93C5FD;
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid #334155;
+  margin: 1em 0;
+}
+
+.md-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+  font-size: 13px;
+}
+
+.md-content th, .md-content td {
+  border: 1px solid #334155;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.md-content th {
+  background: #172033;
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+/* Activity trail markdown should be more compact */
+.activity-entry .md-content {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.activity-entry .md-content pre {
+  font-size: 11px;
+  padding: 8px 10px;
+}
+
+.activity-entry .md-content p {
+  margin: 0 0 0.4em;
+}
+
 /* Custom Project Dropdown */
 .custom-select {
   position: relative;

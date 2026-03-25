@@ -1,8 +1,27 @@
 import { h, render, Component } from 'https://esm.sh/preact';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'https://esm.sh/preact/hooks';
 import htm from 'https://esm.sh/htm';
+import { marked } from 'https://esm.sh/marked';
+import DOMPurify from 'https://esm.sh/dompurify';
 
 const html = htm.bind(h);
+
+marked.setOptions({ breaks: true, gfm: true });
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  return DOMPurify.sanitize(marked.parse(String(text)));
+}
+
+function MarkdownContent({ text, class: className }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.innerHTML = renderMarkdown(text);
+    }
+  }, [text]);
+  return html`<div ref=${ref} class="md-content ${className || ''}"></div>`;
+}
 
 const BASE_PATH = window.MC_BASE_PATH || '';
 
@@ -627,63 +646,104 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
 
   return html`
     <div class="modal-overlay active" onClick=${onClose}>
-      <div class="modal-panel" onClick=${e => e.stopPropagation()}>
-        <div class="flex items-start justify-between mb-6">
-          <div class="flex-1">
-            <input 
-              class="bg-transparent border-none text-xl font-bold text-white w-full focus:outline-none focus:ring-0 p-0" 
+      <div class="card-modal-panel" onClick=${e => e.stopPropagation()}>
+        <!-- Header -->
+        <div class="card-modal-header">
+          <div class="card-modal-header-left">
+            <span class="status-dot${runningClass}" style="background:${color};width:10px;height:10px;"></span>
+            <input
+              class="card-modal-title-input"
               value=${title}
               onInput=${e => setTitle(e.target.value)}
+              placeholder="Card title..."
             />
-            <div class="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">
-              ${currentProject.name}
-            </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1">
             <button class="btn btn-ghost p-2" onClick=${deleteCard} title="Delete card">
-              <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
             <button class="btn btn-ghost p-2" onClick=${onClose}>
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <div class="field-group">
-              <label class="label">Status & Stage</label>
-              <div class="flex items-center gap-2 mb-3">
-                <span class="status-dot${runningClass}" style="background:${color};"></span>
-                <span class="text-gray-300">${label}</span>
+        <!-- Metadata bar -->
+        <div class="card-modal-meta">
+          <div class="card-modal-meta-item">
+            <span class="card-modal-meta-label">Status</span>
+            <span class="card-modal-meta-value">${label}</span>
+          </div>
+          <div class="card-modal-meta-item">
+            <span class="card-modal-meta-label">Stage</span>
+            <select class="card-modal-meta-select" value=${card.column || 'backlog'} onChange=${e => moveCard(e.target.value)}>
+              ${columns.map(c => html`<option value=${c.id}>${c.name}</option>`)}
+            </select>
+          </div>
+          <div class="card-modal-meta-item">
+            <span class="card-modal-meta-label">Project</span>
+            <div class="custom-select" style="flex:1;">
+              <div class="card-modal-meta-select" style="cursor:pointer;" onClick=${() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}>
+                ${currentProject.name}
+                <svg class="w-3 h-3 text-slate-500 inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </div>
-              <select class="input-field" value=${card.column || 'backlog'} onChange=${e => moveCard(e.target.value)}>
-                ${columns.map(c => html`<option value=${c.id}>${c.name}</option>`)}
-              </select>
-            </div>
-
-            <div class="field-group">
-              <label class="label">Project</label>
-              <div class="custom-select ${isProjectDropdownOpen ? 'open' : ''}">
-                <div class="custom-select-trigger" onClick=${() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}>
-                  <span>${currentProject.name}</span>
-                  <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-                <div class="custom-select-options ${isProjectDropdownOpen ? 'active' : ''}">
-                  <div class="custom-select-option" onClick=${() => changeProject('null')}>Global (No Project)</div>
-                  ${projects.map(p => html`
-                    <div class="custom-select-option" onClick=${() => changeProject(p.id)}>${p.name}</div>
-                  `)}
-                </div>
+              <div class="custom-select-options ${isProjectDropdownOpen ? 'active' : ''}">
+                <div class="custom-select-option" onClick=${() => changeProject('null')}>Global (No Project)</div>
+                ${projects.map(p => html`
+                  <div class="custom-select-option" onClick=${() => changeProject(p.id)}>${p.name}</div>
+                `)}
               </div>
             </div>
+          </div>
+          ${card.tags && card.tags.length > 0 && html`
+            <div class="card-modal-meta-item">
+              <span class="card-modal-meta-label">Tags</span>
+              <div class="flex flex-wrap gap-1">
+                ${card.tags.map(t => html`<span class="tag-badge">${t}</span>`)}
+              </div>
+            </div>
+          `}
+        </div>
 
+        <!-- Agent question banner -->
+        ${isAwaitingHuman && card.attentionReason && html`
+          <div class="card-modal-question">
+            <div class="card-modal-question-header">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01" /></svg>
+              Agent is waiting for your reply
+            </div>
+            <${MarkdownContent} text=${card.attentionReason} class="card-modal-question-body" />
+            <div class="card-modal-question-reply">
+              <textarea
+                class="input-field"
+                placeholder="Type your reply..."
+                style="min-height:72px; border-color: rgba(249, 115, 22, 0.3); font-size: 13px;"
+                value=${replyText}
+                onInput=${e => setReplyText(e.target.value)}
+                disabled=${isReplying}
+              ></textarea>
+              <button
+                class="btn btn-primary mt-2 bg-orange-600 hover:bg-orange-700"
+                style="padding: 8px 20px;"
+                onClick=${submitReply}
+                disabled=${isReplying || !replyText.trim()}
+              >
+                ${isReplying ? 'Sending...' : 'Reply & Resume'}
+              </button>
+            </div>
+          </div>
+        `}
+
+        <!-- Body: two columns -->
+        <div class="card-modal-body">
+          <!-- Left: Description & details -->
+          <div class="card-modal-left">
             <div class="field-group">
               <label class="label">Description</label>
-              <textarea 
-                class="input-field" 
-                placeholder="Add a description..." 
-                style="min-height:120px;"
+              <textarea
+                class="input-field"
+                placeholder="Add a description..."
+                style="min-height:100px; font-size: 13px;"
                 value=${description}
                 onInput=${e => setDescription(e.target.value)}
               ></textarea>
@@ -691,9 +751,10 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
 
             <div class="field-group">
               <label class="label">Tags</label>
-              <input 
-                class="input-field" 
-                placeholder="comma-separated tags" 
+              <input
+                class="input-field"
+                placeholder="comma-separated tags"
+                style="font-size: 13px;"
                 value=${tags}
                 onInput=${e => setTags(e.target.value)}
               />
@@ -701,89 +762,130 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
 
             <div class="field-group">
               <label class="label">Attention</label>
-              <select 
-                class="input-field mb-2" 
-                value=${attentionMode} 
+              <select
+                class="input-field mb-2"
+                style="font-size: 13px;"
+                value=${attentionMode}
                 onChange=${e => setAttentionMode(e.target.value)}
                 disabled=${isAwaitingHuman}
               >
-                <option value="none">Normal (No special attention)</option>
+                <option value="none">Normal</option>
                 <option value="waiting_on_patrick">Needs Patrick</option>
               </select>
               ${attentionMode === 'waiting_on_patrick' && html`
-                <input 
-                  class="input-field" 
-                  placeholder="Reason for attention..." 
+                <input
+                  class="input-field"
+                  placeholder="Reason for attention..."
+                  style="font-size: 13px;"
                   value=${attentionReason}
                   onInput=${e => setAttentionReason(e.target.value)}
                   disabled=${isAwaitingHuman}
                 />
               `}
-              <p class="text-[10px] text-slate-500 mt-2">
-                ${isAwaitingHuman 
-                  ? 'This card is waiting on an active agent question. Reply below to resume.' 
-                  : 'Opening the modal marks unread content as read. Needs Patrick stays active until cleared.'}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            ${isAwaitingHuman && card.attentionReason && html`
-              <div class="field-group">
-                <label class="label text-orange-400">Agent Question</label>
-                <div class="question-block">${card.attentionReason}</div>
-                <textarea 
-                  class="input-field mt-3" 
-                  placeholder="Type your reply..." 
-                  style="min-height:80px; border-color: rgba(249, 115, 22, 0.4);"
-                  value=${replyText}
-                  onInput=${e => setReplyText(e.target.value)}
-                  disabled=${isReplying}
-                ></textarea>
-                <button 
-                  class="btn btn-primary w-full mt-3 bg-orange-600 hover:bg-orange-700" 
-                  onClick=${submitReply}
-                  disabled=${isReplying || !replyText.trim()}
-                >
-                  ${isReplying ? 'Sending...' : 'Reply & Resume'}
-                </button>
-              </div>
-            `}
-
-            <div class="field-group">
-              <label class="label">Timeline</label>
-              <div class="activity-trail mb-3">
-                <${ActivityTrail} activity=${activity} columns=${columns} />
-              </div>
-              ${!isAwaitingHuman && html`
-                <div class="flex gap-2">
-                  <input 
-                    class="input-field flex-1" 
-                    placeholder="Add a comment..." 
-                    value=${commentText}
-                    onInput=${e => setCommentText(e.target.value)}
-                    onKeyDown=${e => e.key === 'Enter' && !e.shiftKey && postComment()}
-                  />
-                  <button class="btn btn-secondary" onClick=${postComment} disabled=${!commentText.trim()}>Post</button>
-                </div>
-              `}
             </div>
 
-            <div class="flex gap-3">
+            <div class="flex gap-3 mt-4">
               <button class="btn btn-primary flex-1" onClick=${saveEdits} disabled=${isSaving}>
                 ${isSaving ? 'Saving...' : 'Save Changes'}
               </button>
-              <button class="btn btn-secondary flex-1" onClick=${fetchLog}>View Logs</button>
+              <button class="btn btn-secondary" onClick=${fetchLog}>View Logs</button>
             </div>
+          </div>
+
+          <!-- Right: Timeline -->
+          <div class="card-modal-right">
+            <label class="label">Timeline</label>
+            <div class="activity-trail mb-3">
+              <${ActivityTrail} activity=${activity} columns=${columns} />
+            </div>
+            ${!isAwaitingHuman && html`
+              <div class="flex gap-2">
+                <input
+                  class="input-field flex-1"
+                  placeholder="Add a comment..."
+                  style="font-size: 13px;"
+                  value=${commentText}
+                  onInput=${e => setCommentText(e.target.value)}
+                  onKeyDown=${e => e.key === 'Enter' && !e.shiftKey && postComment()}
+                />
+                <button class="btn btn-secondary" onClick=${postComment} disabled=${!commentText.trim()}>Post</button>
+              </div>
+            `}
           </div>
         </div>
 
+        <!-- Log section -->
         ${isLogVisible && html`
-          <div class="mt-8">
+          <div class="card-modal-log">
             <label class="label mb-2">Full Execution Log</label>
             <pre class="bg-slate-950 p-4 rounded-lg text-xs font-mono text-emerald-400 overflow-auto max-h-[400px] border border-slate-800">${logContent}</pre>
           </div>
         `}
+      </div>
+    </div>
+  `;
+}
+
+function DirectoryPicker({ startPath, onSelect, onClose }) {
+  const [currentPath, setCurrentPath] = useState(startPath || '');
+  const [dirs, setDirs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = (p) => {
+    setLoading(true);
+    setError(null);
+    apiFetch(`/api/directories?path=${encodeURIComponent(p)}`)
+      .then(data => { setDirs(data.dirs); setCurrentPath(data.path); })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(currentPath); }, []);
+
+  const navigate = (dir) => {
+    load(`${currentPath}/${dir}`);
+  };
+
+  const navigateUp = () => {
+    const parts = currentPath.split('/').filter(Boolean);
+    parts.pop();
+    load(parts.length === 0 ? '/' : '/' + parts.join('/'));
+  };
+
+  const canGoUp = currentPath && currentPath !== '/';
+
+  return html`
+    <div class="modal-overlay active" onClick=${onClose}>
+      <div class="modal-panel" style="max-width:480px;" onClick=${e => e.stopPropagation()}>
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="modal-title mb-0">Select Directory</h3>
+          <button class="btn btn-ghost" onClick=${onClose}>
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div class="text-xs text-slate-400 font-mono mb-3 truncate bg-slate-900 rounded px-2 py-1.5">${currentPath || '...'}</div>
+        <div class="bg-slate-900 rounded-lg border border-slate-700 overflow-hidden mb-4" style="max-height:280px;overflow-y:auto;">
+          ${canGoUp ? html`
+            <div class="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 cursor-pointer text-sm text-slate-300" onClick=${navigateUp}>
+              <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+              ..
+            </div>
+          ` : null}
+          ${loading ? html`<div class="text-center py-6 text-slate-500 text-sm">Loading...</div>` : null}
+          ${error ? html`<div class="text-center py-6 text-red-400 text-sm">${error}</div>` : null}
+          ${!loading && !error && dirs.length === 0 ? html`<div class="text-center py-6 text-slate-500 text-sm">No subdirectories</div>` : null}
+          ${!loading && dirs.map(d => html`
+            <div class="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 cursor-pointer text-sm text-slate-200" onClick=${() => navigate(d)}>
+              <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+              ${d}
+            </div>
+          `)}
+        </div>
+        <div class="flex gap-3">
+          <button class="btn btn-primary flex-1" onClick=${() => onSelect(currentPath)} disabled=${!currentPath}>Select this directory</button>
+          <button class="btn btn-secondary flex-1" onClick=${onClose}>Cancel</button>
+        </div>
       </div>
     </div>
   `;
@@ -853,8 +955,9 @@ function ActivityBody({ entry, columns }) {
     case 'run_failed':
       return html`<span class="text-red-400 font-medium">${getColumnName(entry.column || entry.toColumn)} failed ${entry.exitCode ? `(exit ${entry.exitCode})` : ''}</span>`;
     case 'agent_comment':
-    case 'human_comment':
     case 'agent_question':
+      return html`<${MarkdownContent} text=${entry.text} />`;
+    case 'human_comment':
     case 'human_reply':
       return html`<div class="whitespace-pre-wrap">${entry.text}</div>`;
     default:
@@ -976,6 +1079,16 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
   const [newDir, setNewDir] = useState('');
   const [newAiCli, setNewAiCli] = useState('claude');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [homeDir, setHomeDir] = useState('');
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      apiFetch('/api/home-dir')
+        .then(data => setHomeDir(data.home))
+        .catch(err => console.error('Failed to fetch home dir', err));
+    }
+  }, [isOpen]);
 
   const submitAdd = async () => {
     if (!newName.trim() || !newDir.trim()) return;
@@ -986,7 +1099,7 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
         body: JSON.stringify({ name: newName.trim(), directory: newDir.trim(), aiCli: newAiCli })
       });
       setNewName('');
-      setNewDir('');
+      setNewDir('.');
       setNewAiCli('claude');
       onRefresh();
     } catch (err) {
@@ -1016,6 +1129,11 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
     } catch (err) {
       alert('Failed to update project: ' + err.message);
     }
+  };
+
+  const onSelectDirectory = (path) => {
+    setNewDir(path);
+    setIsPickerOpen(false);
   };
 
   return html`
@@ -1063,8 +1181,11 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
               <input class="input-field" placeholder="e.g. Botlanes" value=${newName} onInput=${e => setNewName(e.target.value)} />
             </div>
             <div class="field-group mb-0">
-              <label class="label">Project Directory (Relative to root)</label>
-              <input class="input-field" placeholder="e.g. ." value=${newDir} onInput=${e => setNewDir(e.target.value)} />
+              <label class="label">Project Directory</label>
+              <div class="flex gap-2">
+                <input class="input-field flex-1 font-mono text-sm" readonly placeholder="Click Browse to select..." value=${newDir} />
+                <button class="btn btn-secondary" onClick=${() => setIsPickerOpen(true)}>Browse</button>
+              </div>
             </div>
             <div class="field-group mb-0">
               <label class="label">AI Provider</label>
@@ -1080,6 +1201,7 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
         </div>
       </div>
     </div>
+    ${isPickerOpen ? html`<${DirectoryPicker} startPath=${newDir || homeDir} onSelect=${onSelectDirectory} onClose=${() => setIsPickerOpen(false)} />` : null}
   `;
 }
 
