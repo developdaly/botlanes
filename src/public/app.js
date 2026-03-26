@@ -271,14 +271,8 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
   return html`
     <header class="flex items-center justify-between px-6 py-3 flex-shrink-0" style="height:56px;background:var(--bg-1);border-bottom:1px solid var(--border);">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:var(--accent);">
-          <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-          </svg>
-        </div>
         <div>
-          <h1 class="text-sm font-bold leading-tight" style="color:var(--text-primary);">Botlanes</h1>
-          <p class="text-xs leading-tight" style="color:var(--text-tertiary);">Mission Control</p>
+          <h1 class="text-xl leading-tight" style="color:var(--text-primary);font-family:'Rajdhani',sans-serif;font-weight:700;">botlanes</h1>
         </div>
       </div>
       <div class="flex items-center gap-3">
@@ -411,20 +405,17 @@ function Card({ card, onClick }) {
   };
 
   const status = card.status || 'idle';
-  const color = STATUS_COLORS[status] || STATUS_COLORS.idle;
-  const runningClass = status === 'running' ? ' running' : '';
   const needsPatrick = card.attentionMode === 'waiting_on_patrick' || (card.derived && card.derived.attentionLevel === 'patrick');
 
   return html`
-    <div 
-      class="card ${isDragging ? 'dragging' : ''} ${needsPatrick ? 'card--needs-patrick' : ''} ${status === 'awaiting_human' ? 'awaiting-human' : ''}"
+    <div
+      class="card card--status-${status} ${isDragging ? 'dragging' : ''} ${needsPatrick ? 'card--needs-patrick' : ''} ${status === 'awaiting_human' ? 'awaiting-human' : ''}"
       draggable="true"
       onDragStart=${onDragStart}
       onDragEnd=${onDragEnd}
       onClick=${onClick}
     >
       <div class="flex items-start gap-2">
-        <span class="status-dot${runningClass}" style="background:${color};margin-top:5px;flex-shrink:0;"></span>
         <span class="text-sm font-medium leading-snug flex-1" style="color:var(--text-primary);">${card.title || 'Untitled'}</span>
         <${AttentionChip} card=${card} />
       </div>
@@ -436,9 +427,6 @@ function Card({ card, onClick }) {
         <div class="flex flex-wrap mt-2">
           ${card.tags.map(t => html`<span class="tag-badge">${t}</span>`)}
         </div>
-      `}
-      ${card.skillTriggered && html`
-        <div class="text-xs font-mono mt-2 truncate" style="color:var(--text-tertiary);">${card.skillTriggered}</div>
       `}
     </div>
   `;

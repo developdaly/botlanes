@@ -32,7 +32,7 @@
   --focus-ring: 0 0 0 3px rgba(17,17,17,0.06);
 
   /* Font */
-  --font-sans: 'Geist Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', 'Fira Code', monospace;
 }
 
@@ -253,7 +253,7 @@ body {
   opacity: 0.4;
 }
 
-/* Status dot */
+/* Status dot (modal only) */
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -270,6 +270,45 @@ body {
 
 .status-dot.running {
   animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Card status borders */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes spin-gradient {
+  to { --angle: 360deg; }
+}
+
+.card--status-pending,
+.card--status-awaiting_human {
+  border-color: #F59E0B;
+}
+
+.card--status-complete {
+  border-color: #16A34A;
+}
+
+.card--status-failed {
+  border-color: #DC2626;
+}
+
+.card--status-running {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
+    conic-gradient(from var(--angle), #2563EB, #93C5FD, #2563EB) border-box;
+  animation: spin-gradient 2s linear infinite;
+}
+
+.card--status-running:hover {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
+    conic-gradient(from var(--angle), #2563EB, #93C5FD, #2563EB) border-box;
 }
 
 /* Modal Styles */
