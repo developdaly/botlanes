@@ -59,6 +59,49 @@ type ActiveRun = {
 const ACTIVE_RUNS = new Map<string, ActiveRun>();
 let SERVER_PORT = 0;
 
+// ─── Real-time Events ──────────────────────────────────────────
+const EVENT_CLIENTS = new Set<ReadableStreamDefaultController<string>>();
+
+function broadcast(event: string, data?: any) {
+  const payload = JSON.stringify({ event, data });
+  const message = `data: ${payload}\n\n`;
+  for (const controller of EVENT_CLIENTS) {
+    try {
+      controller.enqueue(message);
+    } catch {
+      EVENT_CLIENTS.delete(controller);
+    }
+  }
+}
+
+function createEventStream(): Response {
+  const stream = new ReadableStream({
+    start(controller) {
+      EVENT_CLIENTS.add(controller);
+      // Heartbeat every 15s to keep connection alive
+      const interval = setInterval(() => {
+        try {
+          controller.enqueue(': heartbeat\n\n');
+        } catch {
+          clearInterval(interval);
+          EVENT_CLIENTS.delete(controller);
+        }
+      }, 15000);
+    },
+    cancel(controller) {
+      EVENT_CLIENTS.delete(controller as any);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
 type AttentionLevel = 'none' | 'output' | 'comment' | 'human';
 
 type CardAttentionDerived = {
@@ -636,6 +679,11 @@ function createLogStream(logFilePath: string): Response {
 
 // ─── API Handler ────────────────────────────────────────────────
 export async function handleApiRoute(url: URL, req: Request, config: MCConfig): Promise<Response> {
+  // GET /api/events — Global SSE event stream
+  if (url.pathname === '/api/events' && req.method === 'GET') {
+    return createEventStream();
+  }
+
   // GET /api/state — return columns + cards + projects
   if (url.pathname === '/api/state' && req.method === 'GET') {
     const state = loadState(config);
@@ -1323,7 +1371,9 @@ async function start() {
           }
           const routedUrl = new URL(req.url);
           routedUrl.pathname = routedPath;
-          return handleApiRoute(routedUrl, req, config);
+          const apiRes = await handleApiRoute(routedUrl, req, config);
+          apiRes.headers.set('Cache-Control', 'no-store');
+          return apiRes;
         }
 
         return new Response('Not found', { status: 404 });
