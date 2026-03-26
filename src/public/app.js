@@ -26,12 +26,12 @@ function MarkdownContent({ text, class: className }) {
 const BASE_PATH = window.MC_BASE_PATH || '';
 
 const STATUS_COLORS = {
-  idle: '#6B7280',
+  idle: '#9CA3AF',
   pending: '#F59E0B',
-  running: '#3B82F6',
-  awaiting_human: '#F97316',
-  complete: '#10B981',
-  failed: '#EF4444',
+  running: '#2563EB',
+  awaiting_human: '#F59E0B',
+  complete: '#16A34A',
+  failed: '#DC2626',
 };
 
 const STATUS_LABELS = {
@@ -224,7 +224,7 @@ function App() {
   const activeCard = boardState?.cards?.find(c => c.id === activeCardId);
 
   return html`
-    <div class="flex flex-col h-screen bg-slate-900 text-slate-100 overflow-hidden">
+    <div class="flex flex-col h-screen overflow-hidden" style="background:var(--bg-2);color:var(--text-primary);font-family:var(--font-sans);">
       <${Header} 
         pollOk=${pollOk} 
         onAddCard=${() => { setPreselectedProjectId(null); setIsAddModalOpen(true); }}
@@ -269,24 +269,24 @@ function App() {
 
 function Header({ pollOk, onAddCard, onManageProjects }) {
   return html`
-    <header class="flex items-center justify-between px-6 py-3 bg-slate-900 border-b border-slate-800 flex-shrink-0" style="height:56px;">
-      <div class="flex items-center gap-4">
-        <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+    <header class="flex items-center justify-between px-6 py-3 flex-shrink-0" style="height:56px;background:var(--bg-1);border-bottom:1px solid var(--border);">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:var(--accent);">
           <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
           </svg>
         </div>
         <div>
-          <h1 class="text-sm font-bold text-white leading-tight">Botlanes</h1>
-          <p class="text-xs text-slate-500 leading-tight">Mission Control</p>
+          <h1 class="text-sm font-bold leading-tight" style="color:var(--text-primary);">Botlanes</h1>
+          <p class="text-xs leading-tight" style="color:var(--text-tertiary);">Mission Control</p>
         </div>
       </div>
-      <div class="flex items-center gap-4">
-        <span class="w-2 h-2 rounded-full ${pollOk ? 'bg-emerald-500' : 'bg-red-500'}" title="${pollOk ? 'Connected' : 'Connection Error'}"></span>
-        <button class="btn btn-secondary text-sm" style="padding:6px 14px;" onClick=${onManageProjects}>
+      <div class="flex items-center gap-3">
+        <span class="w-2 h-2 rounded-full" style="background:${pollOk ? 'var(--status-complete)' : 'var(--status-failed)'};" title="${pollOk ? 'Connected' : 'Connection Error'}"></span>
+        <button class="btn btn-secondary" style="padding:6px 14px;font-size:13px;" onClick=${onManageProjects}>
           Manage Projects
         </button>
-        <button class="btn btn-primary text-sm" style="padding:6px 14px;" onClick=${onAddCard}>
+        <button class="btn btn-primary" style="padding:6px 14px;font-size:13px;" onClick=${onAddCard}>
           <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -425,7 +425,7 @@ function Card({ card, onClick }) {
     >
       <div class="flex items-start gap-2">
         <span class="status-dot${runningClass}" style="background:${color};margin-top:5px;flex-shrink:0;"></span>
-        <span class="text-sm font-medium text-gray-100 leading-snug flex-1">${card.title || 'Untitled'}</span>
+        <span class="text-sm font-medium leading-snug flex-1" style="color:var(--text-primary);">${card.title || 'Untitled'}</span>
         <${AttentionChip} card=${card} />
       </div>
       <${AttentionPill} card=${card} />
@@ -438,7 +438,7 @@ function Card({ card, onClick }) {
         </div>
       `}
       ${card.skillTriggered && html`
-        <div class="text-xs text-blue-400 font-mono mt-2 truncate">${card.skillTriggered}</div>
+        <div class="text-xs font-mono mt-2 truncate" style="color:var(--text-tertiary);">${card.skillTriggered}</div>
       `}
     </div>
   `;
@@ -659,8 +659,8 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
             />
           </div>
           <div class="flex items-center gap-1">
-            <button class="btn btn-ghost p-2" onClick=${deleteCard} title="Delete card">
-              <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            <button class="btn btn-ghost p-2" onClick=${deleteCard} title="Delete card" style="color:#DC2626;">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
             <button class="btn btn-ghost p-2" onClick=${onClose}>
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -685,7 +685,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
             <div class="custom-select" style="flex:1;">
               <div class="card-modal-meta-select" style="cursor:pointer;" onClick=${() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}>
                 ${currentProject.name}
-                <svg class="w-3 h-3 text-slate-500 inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="w-3 h-3 inline ml-1" style="color:var(--text-tertiary);" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </div>
               <div class="custom-select-options ${isProjectDropdownOpen ? 'active' : ''}">
                 <div class="custom-select-option" onClick=${() => changeProject('null')}>Global (No Project)</div>
@@ -717,13 +717,13 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
               <textarea
                 class="input-field"
                 placeholder="Type your reply..."
-                style="min-height:72px; border-color: rgba(249, 115, 22, 0.3); font-size: 13px;"
+                style="min-height:72px; border-color: #FDE68A; font-size: 13px;"
                 value=${replyText}
                 onInput=${e => setReplyText(e.target.value)}
                 disabled=${isReplying}
               ></textarea>
               <button
-                class="btn btn-primary mt-2 bg-orange-600 hover:bg-orange-700"
+                class="btn btn-primary mt-2"
                 style="padding: 8px 20px;"
                 onClick=${submitReply}
                 disabled=${isReplying || !replyText.trim()}
@@ -818,7 +818,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
         ${isLogVisible && html`
           <div class="card-modal-log">
             <label class="label mb-2">Full Execution Log</label>
-            <pre class="bg-slate-950 p-4 rounded-lg text-xs font-mono text-emerald-400 overflow-auto max-h-[400px] border border-slate-800">${logContent}</pre>
+            <pre class="p-4 rounded-lg text-xs font-mono overflow-auto max-h-[400px]" style="background:var(--bg-2);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);">${logContent}</pre>
           </div>
         `}
       </div>
@@ -864,20 +864,20 @@ function DirectoryPicker({ startPath, onSelect, onClose }) {
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
-        <div class="text-xs text-slate-400 font-mono mb-3 truncate bg-slate-900 rounded px-2 py-1.5">${currentPath || '...'}</div>
-        <div class="bg-slate-900 rounded-lg border border-slate-700 overflow-hidden mb-4" style="max-height:280px;overflow-y:auto;">
+        <div class="text-xs font-mono mb-3 truncate rounded px-2 py-1.5" style="color:var(--text-secondary);background:var(--bg-2);">${currentPath || '...'}</div>
+        <div class="rounded-lg overflow-hidden mb-4" style="background:var(--bg-2);border:1px solid var(--border);max-height:280px;overflow-y:auto;">
           ${canGoUp ? html`
-            <div class="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 cursor-pointer text-sm text-slate-300" onClick=${navigateUp}>
-              <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+            <div class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm" style="color:var(--text-secondary);" onMouseOver=${e => e.currentTarget.style.background='var(--bg-3)'} onMouseOut=${e => e.currentTarget.style.background='transparent'} onClick=${navigateUp}>
+              <svg class="w-4 h-4" style="color:var(--text-tertiary);" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
               ..
             </div>
           ` : null}
-          ${loading ? html`<div class="text-center py-6 text-slate-500 text-sm">Loading...</div>` : null}
-          ${error ? html`<div class="text-center py-6 text-red-400 text-sm">${error}</div>` : null}
-          ${!loading && !error && dirs.length === 0 ? html`<div class="text-center py-6 text-slate-500 text-sm">No subdirectories</div>` : null}
+          ${loading ? html`<div class="text-center py-6 text-sm" style="color:var(--text-tertiary);">Loading...</div>` : null}
+          ${error ? html`<div class="text-center py-6 text-sm" style="color:#DC2626;">${error}</div>` : null}
+          ${!loading && !error && dirs.length === 0 ? html`<div class="text-center py-6 text-sm" style="color:var(--text-tertiary);">No subdirectories</div>` : null}
           ${!loading && dirs.map(d => html`
-            <div class="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 cursor-pointer text-sm text-slate-200" onClick=${() => navigate(d)}>
-              <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+            <div class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm" style="color:var(--text-primary);" onMouseOver=${e => e.currentTarget.style.background='var(--bg-3)'} onMouseOut=${e => e.currentTarget.style.background='transparent'} onClick=${() => navigate(d)}>
+              <svg class="w-4 h-4" style="color:var(--text-secondary);" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
               ${d}
             </div>
           `)}
@@ -893,7 +893,7 @@ function DirectoryPicker({ startPath, onSelect, onClose }) {
 
 function ActivityTrail({ activity, columns }) {
   if (!activity || activity.length === 0) {
-    return html`<div class="activity-empty p-8 text-center text-slate-500 text-sm">No timeline yet.</div>`;
+    return html`<div class="activity-empty">No timeline yet.</div>`;
   }
 
   const sorted = [...activity].reverse();
@@ -903,20 +903,20 @@ function ActivityTrail({ activity, columns }) {
   sorted.forEach(entry => {
     const dayLabel = formatActivityDayLabel(entry.timestamp);
     if (dayLabel && dayLabel !== lastDayLabel) {
-      elements.push(html`<div class="activity-separator text-center text-[10px] uppercase tracking-widest text-slate-600 py-4 border-b border-slate-800/50 mb-4">${dayLabel}</div>`);
+      elements.push(html`<div class="activity-separator">${dayLabel}</div>`);
       lastDayLabel = dayLabel;
     }
     const meta = ACTIVITY_META[entry.type] || ACTIVITY_META.unknown_event;
     
     elements.push(html`
-      <div class="activity-entry px-4 pb-4">
-        <div class="activity-icon bg-slate-800 text-[10px] w-6 h-6 rounded-full flex items-center justify-center mr-3 mt-1 flex-shrink-0">${meta.icon}</div>
-        <div class="flex-1 min-w-0">
-          <div class="flex justify-between items-baseline mb-1">
-            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">${meta.label}</span>
-            <span class="text-[10px] text-slate-600">${formatActivityTime(entry.timestamp)}</span>
+      <div class="activity-entry">
+        <div class="activity-icon">${meta.icon}</div>
+        <div class="activity-main">
+          <div class="activity-head">
+            <span class="activity-label">${meta.label}</span>
+            <span class="activity-time">${formatActivityTime(entry.timestamp)}</span>
           </div>
-          <div class="text-sm text-slate-200 leading-relaxed break-words">
+          <div class="activity-body">
             <${ActivityBody} entry=${entry} columns=${columns} />
           </div>
         </div>
@@ -934,26 +934,26 @@ function ActivityBody({ entry, columns }) {
     case 'stage_changed':
       return html`
         <div class="flex items-center gap-2">
-          <span class="px-1.5 py-0.5 bg-slate-800 rounded text-[11px]">${getColumnName(entry.fromColumn)}</span>
-          <span class="text-slate-600">→</span>
-          <span class="px-1.5 py-0.5 bg-blue-900/40 text-blue-200 rounded text-[11px]">${getColumnName(entry.toColumn)}</span>
+          <span class="px-1.5 py-0.5 rounded text-[11px]" style="background:var(--bg-3);color:var(--text-secondary);">${getColumnName(entry.fromColumn)}</span>
+          <span style="color:var(--text-tertiary);">→</span>
+          <span class="px-1.5 py-0.5 rounded text-[11px]" style="background:var(--bg-3);color:var(--text-primary);">${getColumnName(entry.toColumn)}</span>
         </div>
       `;
     case 'status_changed':
       return html`
         <div class="flex items-center gap-2">
-          <span class="px-1.5 py-0.5 bg-slate-800 rounded text-[11px]">${statusLabel(entry.fromStatus)}</span>
-          <span class="text-slate-600">→</span>
-          <span class="px-1.5 py-0.5 bg-slate-800 rounded text-[11px]">${statusLabel(entry.toStatus)}</span>
+          <span class="px-1.5 py-0.5 rounded text-[11px]" style="background:var(--bg-3);color:var(--text-secondary);">${statusLabel(entry.fromStatus)}</span>
+          <span style="color:var(--text-tertiary);">→</span>
+          <span class="px-1.5 py-0.5 rounded text-[11px]" style="background:var(--bg-3);color:var(--text-primary);">${statusLabel(entry.toStatus)}</span>
         </div>
       `;
     case 'run_started':
       const verb = /resum/i.test(entry.text || '') ? 'Resumed' : 'Started';
-      return html`<span class="text-slate-400 italic">${verb} ${getColumnName(entry.column || entry.toColumn)}</span>`;
+      return html`<span style="color:var(--text-secondary);font-style:italic;">${verb} ${getColumnName(entry.column || entry.toColumn)}</span>`;
     case 'run_completed':
-      return html`<span class="text-emerald-400 font-medium">${getColumnName(entry.column || entry.toColumn)} completed</span>`;
+      return html`<span class="font-medium" style="color:var(--status-complete);">${getColumnName(entry.column || entry.toColumn)} completed</span>`;
     case 'run_failed':
-      return html`<span class="text-red-400 font-medium">${getColumnName(entry.column || entry.toColumn)} failed ${entry.exitCode ? `(exit ${entry.exitCode})` : ''}</span>`;
+      return html`<span class="font-medium" style="color:var(--status-failed);">${getColumnName(entry.column || entry.toColumn)} failed ${entry.exitCode ? `(exit ${entry.exitCode})` : ''}</span>`;
     case 'agent_comment':
     case 'agent_question':
       return html`<${MarkdownContent} text=${entry.text} />`;
@@ -1018,7 +1018,7 @@ function AddCardModal({ isOpen, projects, preselectedProjectId, onClose, onRefre
           <div class="custom-select ${isProjectDropdownOpen ? 'open' : ''}">
             <div class="custom-select-trigger" onClick=${() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}>
               <span>${currentProject.name}</span>
-              <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg class="w-4 h-4" style="color:var(--text-tertiary);" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div class="custom-select-options ${isProjectDropdownOpen ? 'active' : ''}">
               <div class="custom-select-option" onClick=${() => { setProjectId(''); setIsProjectDropdownOpen(false); }}>Global (No Project)</div>
@@ -1148,16 +1148,16 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
 
         <div class="space-y-4 mb-8">
           ${projects.length === 0 ? html`
-            <div class="text-sm text-slate-500 text-center py-4">No projects yet.</div>
+            <div class="text-sm text-center py-4" style="color:var(--text-tertiary);">No projects yet.</div>
           ` : projects.map(p => html`
-            <div class="flex items-center justify-between p-3 bg-slate-800 rounded-lg border border-slate-700">
+            <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--bg-2);border:1px solid var(--border);">
               <div>
-                <div class="font-medium text-sm text-white">${p.name}</div>
-                <div class="text-xs text-slate-400 font-mono mt-0.5">${p.directory}</div>
+                <div class="font-medium text-sm" style="color:var(--text-primary);">${p.name}</div>
+                <div class="text-xs font-mono mt-0.5" style="color:var(--text-secondary);">${p.directory}</div>
               </div>
               <div class="flex items-center gap-2">
-                <select 
-                  class="input-field" 
+                <select
+                  class="input-field"
                   style="width: auto; padding: 2px 8px; min-height: unset; height: 28px; font-size: 0.75rem;"
                   value=${p.aiCli || 'claude'}
                   onChange=${e => updateProjectAi(p.id, e.target.value)}
@@ -1165,7 +1165,7 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
                   <option value="claude">Claude CLI</option>
                   <option value="gemini">Gemini CLI</option>
                 </select>
-                <button class="btn btn-ghost text-red-400 hover:text-red-300 hover:bg-red-900/30 px-2 py-1 h-auto min-h-0 text-xs" onClick=${() => deleteProject(p.id)}>
+                <button class="btn btn-ghost px-2 py-1 h-auto min-h-0 text-xs" style="color:#DC2626;" onClick=${() => deleteProject(p.id)}>
                   Delete
                 </button>
               </div>
@@ -1173,8 +1173,8 @@ function ProjectManagerModal({ isOpen, projects, onClose, onRefresh }) {
           `)}
         </div>
 
-        <div class="border-t border-slate-700 pt-6">
-          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Add New Project</h3>
+        <div class="pt-6" style="border-top:1px solid var(--border);">
+          <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color:var(--text-secondary);">Add New Project</h3>
           <div class="grid grid-cols-1 gap-4">
             <div class="field-group mb-0">
               <label class="label">Project Name</label>
@@ -1248,36 +1248,36 @@ function LoginPage({ onLogin }) {
   };
 
   return html`
-    <div class="min-h-screen flex items-center justify-center bg-slate-950 p-6">
-      <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+    <div class="min-h-screen flex items-center justify-center p-6" style="background:var(--bg-2);font-family:var(--font-sans);">
+      <div class="p-8 rounded-xl w-full max-w-md" style="background:var(--bg-1);border:1px solid var(--border);box-shadow:var(--shadow-3);">
         <div class="flex items-center gap-3 mb-8">
-          <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-900/20">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:var(--accent);">
             <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
             </svg>
           </div>
           <div>
-            <h1 class="text-lg font-bold text-white">Mission Control</h1>
-            <p class="text-xs text-slate-500">Sign in to continue</p>
+            <h1 class="text-lg font-bold" style="color:var(--text-primary);">Mission Control</h1>
+            <p class="text-xs" style="color:var(--text-tertiary);">Sign in to continue</p>
           </div>
         </div>
         <div class="field-group">
           <label class="label">Password</label>
-          <input 
-            class="input-field" 
-            type="password" 
-            placeholder="Enter password..." 
+          <input
+            class="input-field"
+            type="password"
+            placeholder="Enter password..."
             value=${password}
             onInput=${e => setPassword(e.target.value)}
             onKeyDown=${e => e.key === 'Enter' && submit()}
             autoFocus
           />
         </div>
-        ${error && html`<div class="text-red-400 text-sm mb-4 bg-red-900/20 border border-red-900/50 p-3 rounded-lg">${error}</div>`}
-        <button class="btn btn-primary w-full py-3 text-base shadow-lg shadow-blue-900/20" onClick=${submit}>Sign In</button>
-        
+        ${error && html`<div class="text-sm mb-4 p-3 rounded-lg" style="color:#991B1B;background:#FEF2F2;border:1px solid #FECACA;">${error}</div>`}
+        <button class="btn btn-primary w-full py-3 text-base" onClick=${submit}>Sign In</button>
+
         ${info && html`
-          <div class="mt-8 pt-6 border-t border-slate-800 text-[10px] text-slate-500 space-y-1.5 font-mono">
+          <div class="mt-8 pt-6 text-[10px] space-y-1.5 font-mono" style="border-top:1px solid var(--border);color:var(--text-tertiary);">
             <div>v${info.version} • ${info.runtime}</div>
             <div>Up ${formatUptime(info.uptime)} • ${info.cards} card${info.cards !== 1 ? 's' : ''}</div>
             <div>${info.executionMode === 'claude-cli' ? 'Claude CLI mode' : 'Standard mode'}</div>
