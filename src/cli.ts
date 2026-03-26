@@ -1,8 +1,8 @@
 /**
- * Mission Control CLI — thin wrapper that talks to the persistent server
+ * botlanes CLI — thin wrapper that talks to the persistent server
  *
  * Flow:
- *   1. Read .gstack/missioncontrol-server.json for port + token
+ *   1. Read .gstack/botlanes-server.json for port + token
  *   2. If missing or stale PID → start server in background
  *   3. Health check + version mismatch detection
  *   4. Send command via HTTP request
@@ -24,7 +24,7 @@ function resolveServerScript(
     return env.MC_SERVER_SCRIPT;
   }
 
-  // Dev mode: cli.ts runs directly from missioncontrol/src
+  // Dev mode: cli.ts runs directly from botlanes/src
   if (!metaDir.includes('$bunfs')) {
     const direct = path.resolve(metaDir, 'server.ts');
     if (fs.existsSync(direct)) {
@@ -32,7 +32,7 @@ function resolveServerScript(
     }
   }
 
-  // Compiled binary: derive source tree from missioncontrol/dist/missioncontrol
+  // Compiled binary: derive source tree from botlanes/dist/botlanes
   if (execPath) {
     const adjacent = path.resolve(path.dirname(execPath), '..', 'src', 'server.ts');
     if (fs.existsSync(adjacent)) {
@@ -41,7 +41,7 @@ function resolveServerScript(
   }
 
   throw new Error(
-    'Cannot find server.ts. Set MC_SERVER_SCRIPT env or run from the missioncontrol source tree.'
+    'Cannot find server.ts. Set MC_SERVER_SCRIPT env or run from the botlanes source tree.'
   );
 }
 
@@ -144,7 +144,7 @@ async function ensureServer(): Promise<ServerState> {
     // Check for binary version mismatch (auto-restart on update)
     const currentVersion = readVersionHash();
     if (currentVersion && state.binaryVersion && currentVersion !== state.binaryVersion) {
-      console.error('[missioncontrol] Binary updated, restarting server...');
+      console.error('[botlanes] Binary updated, restarting server...');
       await killServer(state.pid);
       return startServer();
     }
@@ -166,7 +166,7 @@ async function ensureServer(): Promise<ServerState> {
   }
 
   // Need to (re)start
-  console.error('[missioncontrol] Starting server...');
+  console.error('[botlanes] Starting server...');
   return startServer();
 }
 
@@ -227,12 +227,12 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0 || args[0] === '--help') {
-    console.log(`Mission Control — Visual Agent Task Manager
+    console.log(`botlanes — Visual Agent Task Manager
 
-Usage: missioncontrol <command> [args...]
+Usage: botlanes <command> [args...]
 
 Commands:
-  start                    Start the Mission Control server
+  start                    Start the botlanes server
   stop                     Stop the server
   open                     Open the board in your browser
   show                     Print board state to terminal
@@ -247,16 +247,16 @@ Commands:
   switch (command) {
     case 'start': {
       const state = await ensureServer();
-      console.log(`Mission Control running at http://127.0.0.1:${state.port}`);
+      console.log(`botlanes running at http://127.0.0.1:${state.port}`);
       break;
     }
     case 'stop': {
       const state = readState();
       if (state && isProcessAlive(state.pid)) {
         await killServer(state.pid);
-        console.log('Mission Control stopped');
+        console.log('botlanes stopped');
       } else {
-        console.log('Mission Control is not running');
+        console.log('botlanes is not running');
       }
       break;
     }
@@ -275,7 +275,7 @@ Commands:
     }
     case 'add': {
       const title = args[1];
-      if (!title) { console.error('Usage: missioncontrol add "title"'); process.exit(1); }
+      if (!title) { console.error('Usage: botlanes add "title"'); process.exit(1); }
       const descIdx = args.indexOf('--desc');
       const tagsIdx = args.indexOf('--tags');
       const description = descIdx !== -1 ? args[descIdx + 1] : '';
@@ -288,7 +288,7 @@ Commands:
     case 'move': {
       const cardId = args[1];
       const column = args[2];
-      if (!cardId || !column) { console.error('Usage: missioncontrol move <id> <column>'); process.exit(1); }
+      if (!cardId || !column) { console.error('Usage: botlanes move <id> <column>'); process.exit(1); }
       const state = await ensureServer();
       const result = await sendCommand(state, `/api/cards/${cardId}/move`, 'POST', { column });
       console.log(`Moved "${result.card.title}" to ${result.card.column}`);
@@ -317,7 +317,7 @@ Commands:
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(`[missioncontrol] ${err.message}`);
+    console.error(`[botlanes] ${err.message}`);
     process.exit(1);
   });
 }

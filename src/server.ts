@@ -1,5 +1,5 @@
 /**
- * gstack missioncontrol server — persistent Kanban board daemon
+ * gstack botlanes server — persistent Kanban board daemon
  *
  * Architecture:
  *   Bun.serve HTTP on 0.0.0.0 → serves board UI and REST API
@@ -7,9 +7,9 @@
  *   No idle timeout — board stays alive for phone access
  *
  * State:
- *   Server state: <project-root>/.gstack/missioncontrol-server.json
- *   Board state:  <project-root>/.gstack/missioncontrol.json
- *   Log files:    <project-root>/.gstack/missioncontrol-logs/
+ *   Server state: <project-root>/.gstack/botlanes-server.json
+ *   Board state:  <project-root>/.gstack/botlanes.json
+ *   Log files:    <project-root>/.gstack/botlanes-logs/
  *   Port:         random 10000-60000 (or MC_PORT env for debug override)
  */
 
@@ -125,7 +125,7 @@ function safeRemoveCardUploadsDir(cardId: string): void {
   const resolvedRoot = path.resolve(config.uploadsDir);
   const targetDir = path.resolve(getCardUploadsDir(cardId));
   if (!targetDir.startsWith(resolvedRoot + path.sep) && targetDir !== resolvedRoot) {
-    throw new Error('Refusing to remove uploads outside missioncontrol-uploads root');
+    throw new Error('Refusing to remove uploads outside botlanes-uploads root');
   }
   fs.rmSync(targetDir, { recursive: true, force: true });
 }
@@ -228,7 +228,7 @@ async function pipeStreamToLog(
     const tail = decoder.decode();
     if (tail) appendLog(logFile, `${prefix}${tail}`);
   } catch (err: any) {
-    appendLog(logFile, `\n[missioncontrol] log stream error: ${err.message}\n`);
+    appendLog(logFile, `\n[botlanes] log stream error: ${err.message}\n`);
   }
 }
 
@@ -240,7 +240,7 @@ export function buildStagePrompt(params: {
 }): string {
   const { card, skill, columnName, priorLogFile } = params;
   const lines = [
-    `Mission Control stage run.`,
+    `botlanes stage run.`,
     `You are the Claude agent executing work for this card. This is a fresh invocation for this stage.`,
     `Card title: ${card.title}`,
     `Card ID: ${card.id}`,
@@ -269,7 +269,7 @@ export function buildStagePrompt(params: {
   }
 
   lines.push(
-    `If you need human input to proceed, ask exactly one clear question by POSTing to the Mission Control callback URL in this environment:`,
+    `If you need human input to proceed, ask exactly one clear question by POSTing to the botlanes callback URL in this environment:`,
     `curl -sS -X POST "$MC_CARD_API_URL/question" \\\n  -H "Authorization: Bearer $MC_AUTH_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data '{"text":"<your question here>"}'`,
     `After posting the question, stop and wait. Do not guess, do not continue with placeholder assumptions. When the human replies in the card UI their response will be sent to you as a new invocation.`,
   );
@@ -294,7 +294,7 @@ function cancelActiveRun(cardId: string, reason?: string): void {
   } catch {}
   const card = getCard(config, cardId);
   if (card?.logFile) {
-    appendLog(card.logFile, `\n[missioncontrol] Cancelled active run${reason ? `: ${reason}` : ''}\n`);
+    appendLog(card.logFile, `\n[botlanes] Cancelled active run${reason ? `: ${reason}` : ''}\n`);
   }
   if (card) {
     addActivity(config, cardId, 'run_cancelled', reason ? `Run cancelled: ${reason}` : 'Run cancelled', {
@@ -330,7 +330,7 @@ function attachRunExitHandler(params: {
       if (currentCard?.status === 'awaiting_human') {
         appendLog(
           logFile,
-          `\n[missioncontrol] Process exited with code ${exitCode}; card is awaiting human input so status was preserved\n`,
+          `\n[botlanes] Process exited with code ${exitCode}; card is awaiting human input so status was preserved\n`,
         );
         return;
       }
@@ -342,7 +342,7 @@ function attachRunExitHandler(params: {
           ? `${columnName} completed`
           : `${columnName} failed (exit ${exitCode})`;
 
-      appendLog(logFile, `\n[missioncontrol] Process exited with code ${exitCode}\n`);
+      appendLog(logFile, `\n[botlanes] Process exited with code ${exitCode}\n`);
       setCardStatus(config, cardId, status, {
         column,
         skill: skill || undefined,
@@ -360,7 +360,7 @@ function attachRunExitHandler(params: {
         return;
       }
       ACTIVE_RUNS.delete(cardId);
-      appendLog(logFile, `\n[missioncontrol] Execution error: ${err.message}\n`);
+      appendLog(logFile, `\n[botlanes] Execution error: ${err.message}\n`);
       setCardStatus(config, cardId, 'failed', {
         column,
         skill: skill || undefined,
@@ -403,7 +403,7 @@ async function startCardSessionRun(params: {
 
   appendLog(
     logFile,
-    `\n=== Mission Control stage run ===\n` +
+    `\n=== botlanes stage run ===\n` +
       `[started] ${new Date().toISOString()}\n` +
       `[card] ${card.title} (${card.id})\n` +
       `[stage] ${columnName}\n` +
@@ -426,7 +426,7 @@ async function startCardSessionRun(params: {
       : path.resolve(config.projectDir, project.directory);
     if (!fs.existsSync(executionCwd)) {
       const errText = `Project directory not found: ${executionCwd}`;
-      appendLog(logFile, `\n[missioncontrol] Error: ${errText}\n`);
+      appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
       setCardStatus(config, card.id, 'failed', { column: card.column, skill });
       addActivity(config, card.id, 'run_failed', errText, { column: card.column, skill });
       return;
@@ -450,7 +450,7 @@ async function startCardSessionRun(params: {
   const timeoutHandle = setTimeout(() => {
     const active = ACTIVE_RUNS.get(card.id);
     if (!active || active.runId !== runId) return;
-    appendLog(logFile, `\n[missioncontrol] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
+    appendLog(logFile, `\n[botlanes] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
     cancelActiveRun(card.id, 'timeout');
   }, AGENT_TIMEOUT_MS);
 
@@ -797,7 +797,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
           card: result.card,
           skill: result.skill,
         }).catch((err: any) => {
-          console.error(`[missioncontrol] Card session run failed: ${err.message}`);
+          console.error(`[botlanes] Card session run failed: ${err.message}`);
           setCardStatus(config, cardId, 'failed', {
             column: body.column,
             skill: result.skill || undefined,
@@ -920,7 +920,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       skill: card.skillTriggered || undefined,
     });
     if (card.logFile) {
-      appendLog(card.logFile, `\n[missioncontrol] Agent requested human input: ${text}\n`);
+      appendLog(card.logFile, `\n[botlanes] Agent requested human input: ${text}\n`);
     }
     return Response.json({ ok: true, status: 'awaiting_human' });
   }
@@ -970,7 +970,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     appendLog(
       logFile,
-      `\n=== Mission Control human reply ===\n` +
+      `\n=== botlanes human reply ===\n` +
         `[received] ${new Date().toISOString()}\n` +
         `[card] ${resumedCard.title} (${resumedCard.id})\n` +
         `[stage] ${columnName}\n` +
@@ -978,7 +978,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     );
 
     const prompt = [
-      'Mission Control stage run — resuming after human reply.',
+      'botlanes stage run — resuming after human reply.',
       'A human has answered your previous question. Use their reply to continue the work.',
       `Card title: ${resumedCard.title}`,
       `Card ID: ${resumedCard.id}`,
@@ -986,7 +986,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
       resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
       `Human reply to your question:\n${text}`,
-      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the Mission Control callback URL (MC_CARD_API_URL / MC_AUTH_TOKEN env vars) and then stop.`,
+      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (MC_CARD_API_URL / MC_AUTH_TOKEN env vars) and then stop.`,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -998,7 +998,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       executionCwd = path.resolve(config.projectDir, project.directory);
       if (!fs.existsSync(executionCwd)) {
         const errText = `Project directory not found: ${executionCwd}`;
-        appendLog(logFile, `\n[missioncontrol] Error: ${errText}\n`);
+        appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
         setCardStatus(config, cardId, 'failed', { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
         addActivity(config, cardId, 'run_failed', errText, { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
         return Response.json({ error: errText }, { status: 400 });
@@ -1028,7 +1028,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     const timeoutHandle = setTimeout(() => {
       const active = ACTIVE_RUNS.get(cardId);
       if (!active || active.runId !== runId) return;
-      appendLog(logFile, `\n[missioncontrol] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
+      appendLog(logFile, `\n[botlanes] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
       cancelActiveRun(cardId, 'timeout');
     }, AGENT_TIMEOUT_MS);
 
@@ -1161,7 +1161,7 @@ let isShuttingDown = false;
 async function shutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log('[missioncontrol] Shutting down...');
+  console.log('[botlanes] Shutting down...');
   for (const [cardId] of ACTIVE_RUNS) {
     cancelActiveRun(cardId, 'server shutdown');
   }
@@ -1268,7 +1268,7 @@ async function start() {
 
         return new Response('Not found', { status: 404 });
       } catch (err: any) {
-        console.error(`[missioncontrol] Unhandled error: ${err.message}`);
+        console.error(`[botlanes] Unhandled error: ${err.message}`);
         return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     },
@@ -1289,18 +1289,18 @@ async function start() {
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.serverStateFile);
 
-  console.log(`[missioncontrol] Server running on http://0.0.0.0:${port} (PID: ${process.pid})`);
-  console.log(`[missioncontrol] State file: ${config.serverStateFile}`);
-  console.log(`[missioncontrol] Board file: ${config.boardStateFile}`);
-  console.log(`[missioncontrol] Claude config dir: ${CLAUDE_CONFIG_DIR}`);
+  console.log(`[botlanes] Server running on http://0.0.0.0:${port} (PID: ${process.pid})`);
+  console.log(`[botlanes] State file: ${config.serverStateFile}`);
+  console.log(`[botlanes] Board file: ${config.boardStateFile}`);
+  console.log(`[botlanes] Claude config dir: ${CLAUDE_CONFIG_DIR}`);
   if (MC_PASSWORD) {
-    console.log(`[missioncontrol] Password auth enabled`);
+    console.log(`[botlanes] Password auth enabled`);
   } else {
-    console.log(`[missioncontrol] No password set — open access`);
+    console.log(`[botlanes] No password set — open access`);
   }
 }
 
 start().catch((err) => {
-  console.error(`[missioncontrol] Failed to start: ${err.message}`);
+  console.error(`[botlanes] Failed to start: ${err.message}`);
   process.exit(1);
 });

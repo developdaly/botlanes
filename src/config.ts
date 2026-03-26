@@ -1,5 +1,5 @@
 /**
- * Shared config for missioncontrol CLI + server.
+ * Shared config for botlanes CLI + server.
  *
  * Resolution:
  *   1. MC_STATE_FILE env → derive stateDir from parent
@@ -16,10 +16,10 @@ import * as path from 'path';
 export interface MCConfig {
   projectDir: string;
   stateDir: string;
-  serverStateFile: string;  // .gstack/missioncontrol-server.json (pid, port, token)
-  boardStateFile: string;   // .gstack/missioncontrol.json (cards)
-  logsDir: string;          // .gstack/missioncontrol-logs/
-  uploadsDir: string;       // .gstack/missioncontrol-uploads/
+  serverStateFile: string;  // .gstack/botlanes-server.json (pid, port, token)
+  boardStateFile: string;   // .gstack/botlanes.json (cards)
+  logsDir: string;          // .gstack/botlanes-logs/
+  uploadsDir: string;       // .gstack/botlanes-uploads/
 }
 
 /**
@@ -40,7 +40,7 @@ export function getGitRoot(): string | null {
 }
 
 /**
- * Resolve all missioncontrol config paths.
+ * Resolve all botlanes config paths.
  *
  * If MC_STATE_FILE is set (e.g. by CLI when spawning server, or by
  * tests for isolation), all paths are derived from it. Otherwise, the
@@ -60,21 +60,21 @@ export function resolveConfig(
   } else {
     projectDir = getGitRoot() || process.cwd();
     stateDir = path.join(projectDir, '.gstack');
-    serverStateFile = path.join(stateDir, 'missioncontrol-server.json');
+    serverStateFile = path.join(stateDir, 'botlanes-server.json');
   }
 
   return {
     projectDir,
     stateDir,
     serverStateFile,
-    boardStateFile: path.join(stateDir, 'missioncontrol.json'),
-    logsDir: path.join(stateDir, 'missioncontrol-logs/'),
-    uploadsDir: path.join(stateDir, 'missioncontrol-uploads/'),
+    boardStateFile: path.join(stateDir, 'botlanes.json'),
+    logsDir: path.join(stateDir, 'botlanes-logs/'),
+    uploadsDir: path.join(stateDir, 'botlanes-uploads/'),
   };
 }
 
 /**
- * Create the .gstack/ state directory and missioncontrol-logs/ if they don't exist.
+ * Create the .gstack/ state directory and botlanes-logs/ if they don't exist.
  * Throws with a clear message on permission errors.
  */
 export function ensureStateDir(config: MCConfig): void {
@@ -125,7 +125,7 @@ export function ensureStateDir(config: MCConfig): void {
   } catch (err: any) {
     if (err.code !== 'ENOENT') {
       // Write warning to server log (visible even in daemon mode)
-      const logPath = path.join(config.stateDir, 'missioncontrol-server.log');
+      const logPath = path.join(config.stateDir, 'botlanes-server.log');
       try {
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
       } catch {
@@ -161,7 +161,7 @@ export function getRemoteSlug(): string {
 }
 
 /**
- * Read the binary version (git SHA) from missioncontrol/dist/.version.
+ * Read the binary version (git SHA) from botlanes/dist/.version.
  * Returns null if the file doesn't exist or can't be read.
  */
 export function readVersionHash(execPath: string = process.execPath): string | null {

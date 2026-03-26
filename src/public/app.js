@@ -1245,7 +1245,7 @@ function LoginPage({ onLogin }) {
             </svg>
           </div>
           <div>
-            <h1 class="text-lg font-bold" style="color:var(--text-primary);">Mission Control</h1>
+            <h1 class="text-lg font-bold" style="color:var(--text-primary);">botlanes</h1>
             <p class="text-xs" style="color:var(--text-tertiary);">Sign in to continue</p>
           </div>
         </div>
