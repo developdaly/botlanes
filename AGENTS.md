@@ -1,4 +1,4 @@
-# GEMINI.md
+# AGENTS.md
 
 Kanban mission control for gstack agent tasks. Preact frontend, TypeScript backend.
 

@@ -680,6 +680,15 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const [attentionReason, setAttentionReason] = useState(card.attentionReason || '');
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
 
+  const loadActivity = useCallback(async () => {
+    try {
+      const data = await apiFetch(`/api/cards/${card.id}/activity`);
+      setActivity(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load activity', err);
+    }
+  }, [card.id]);
+
   useEffect(() => {
     setTitle(card.title || '');
     setDescription(card.description || '');
@@ -693,14 +702,10 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
     markRead();
   }, [card.id]);
 
-  const loadActivity = async () => {
-    try {
-      const data = await apiFetch(`/api/cards/${card.id}/activity`);
-      setActivity(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Failed to load activity', err);
-    }
-  };
+  useEffect(() => {
+    const interval = setInterval(loadActivity, 2000);
+    return () => clearInterval(interval);
+  }, [loadActivity]);
 
   const markRead = async () => {
     try {
@@ -783,6 +788,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
         body: JSON.stringify({ text: replyText.trim() }),
       });
       setReplyText('');
+      loadActivity();
       onRefresh();
     } catch (err) {
       alert('Failed to send reply: ' + err.message);
@@ -1461,7 +1467,7 @@ function LoginPage({ onLogin }) {
           <div class="mt-8 pt-6 text-[10px] space-y-1.5 font-mono" style="border-top:1px solid var(--border);color:var(--text-tertiary);">
             <div>v${info.version} • ${info.runtime}</div>
             <div>Up ${formatUptime(info.uptime)} • ${info.cards} card${info.cards !== 1 ? 's' : ''}</div>
-            <div>${info.executionMode === 'claude-cli' ? 'Claude CLI mode' : 'Standard mode'}</div>
+            <div>${info.executionMode === 'agent-cli' ? 'Multi-Agent CLI mode' : 'Standard mode'}</div>
           </div>
         `}
       </div>

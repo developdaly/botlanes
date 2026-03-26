@@ -47,6 +47,7 @@ const BOTLANES_BASE_PATH = (process.env.BOTLANES_BASE_PATH || '').replace(/\/+$/
 // ─── Claude CLI Integration ─────────────────────────────────────
 const CLAUDE_CONFIG_DIR = process.env.BOTLANES_CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const CLAUDE_BIN = process.env.BOTLANES_CLAUDE_BIN || 'claude';
+const GEMINI_BIN = process.env.BOTLANES_GEMINI_BIN || 'gemini';
 const AGENT_TIMEOUT_MS = (parseInt(process.env.BOTLANES_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
 
 type ActiveRun = {
@@ -295,11 +296,12 @@ export function buildStagePrompt(params: {
   skill: string;
   columnName: string;
   priorLogFile: string | null;
+  isGemini: boolean;
 }): string {
-  const { card, skill, columnName, priorLogFile } = params;
+  const { card, skill, columnName, priorLogFile, isGemini } = params;
   const lines = [
     `botlanes stage run.`,
-    `You are the Claude agent executing work for this card. This is a fresh invocation for this stage.`,
+    `You are the ${isGemini ? 'Gemini' : 'Claude'} agent executing work for this card. This is a fresh invocation for this stage.`,
     `Card title: ${card.title}`,
     `Card ID: ${card.id}`,
     `Current stage: ${columnName}`,
@@ -451,11 +453,19 @@ async function startCardSessionRun(params: {
     column: card.column,
     skill,
   });
+  const { getProject } = await import('./state');
+  const project = card.projectId ? getProject(config, card.projectId) : null;
+  const isGemini = project?.aiCli === 'gemini';
+  const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
+  const args = isGemini
+    ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
+    : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
+
   addActivity(
     config,
     card.id,
     'run_started',
-    `Started ${columnName} via Claude`,
+    `Started ${columnName} via ${isGemini ? 'Gemini' : 'Claude'}`,
     { column: card.column, skill },
   );
 
@@ -465,7 +475,8 @@ async function startCardSessionRun(params: {
       `[started] ${new Date().toISOString()}\n` +
       `[card] ${card.title} (${card.id})\n` +
       `[stage] ${columnName}\n` +
-      `[skill] ${skill}\n\n`,
+      `[skill] ${skill}\n` +
+      `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
   );
 
   const prompt = buildStagePrompt({
@@ -473,10 +484,9 @@ async function startCardSessionRun(params: {
     skill,
     columnName,
     priorLogFile,
+    isGemini,
   });
 
-  const { getProject } = await import('./state');
-  const project = card.projectId ? getProject(config, card.projectId) : null;
   let executionCwd = config.projectDir;
   if (project?.directory) {
     executionCwd = path.isAbsolute(project.directory)
@@ -492,10 +502,10 @@ async function startCardSessionRun(params: {
   }
 
   const proc = Bun.spawn(
-    [CLAUDE_BIN, '-p', '--output-format', 'text', '--dangerously-skip-permissions'],
+    [bin, ...args],
     {
       cwd: executionCwd,
-      env: { ...buildCardAgentEnv(card.id), CLAUDE_CONFIG_DIR },
+      env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
       stdout: 'pipe',
       stderr: 'pipe',
       stdin: new TextEncoder().encode(prompt),
@@ -857,7 +867,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
             column: body.column,
             skill: result.skill || undefined,
           });
-          addActivity(config, cardId, 'run_failed', `Failed to start Claude: ${err.message}`, {
+          addActivity(config, cardId, 'run_failed', `Failed to start agent: ${err.message}`, {
             column: body.column,
             skill: result.skill || undefined,
           });
@@ -1015,11 +1025,19 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     });
 
     const columnName = getColumnName(resumedCard.column);
+    const { getProject } = await import('./state');
+    const project = resumedCard.projectId ? getProject(config, resumedCard.projectId) : null;
+    const isGemini = project?.aiCli === 'gemini';
+    const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
+    const args = isGemini
+      ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
+      : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
+
     addActivity(
       config,
       cardId,
       'run_started',
-      `Resumed ${columnName} after human reply via Claude`,
+      `Resumed ${columnName} after human reply via ${isGemini ? 'Gemini' : 'Claude'}`,
       { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined },
     );
 
@@ -1029,7 +1047,8 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         `[received] ${new Date().toISOString()}\n` +
         `[card] ${resumedCard.title} (${resumedCard.id})\n` +
         `[stage] ${columnName}\n` +
-        `[human-reply] ${text}\n\n`,
+        `[human-reply] ${text}\n` +
+        `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
     );
 
     const prompt = [
@@ -1046,8 +1065,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       .filter(Boolean)
       .join('\n\n');
 
-    const { getProject } = await import('./state');
-    const project = resumedCard.projectId ? getProject(config, resumedCard.projectId) : null;
     let executionCwd = config.projectDir;
     if (project?.directory) {
       executionCwd = path.resolve(config.projectDir, project.directory);
@@ -1059,12 +1076,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         return Response.json({ error: errText }, { status: 400 });
       }
     }
-
-    const isGemini = project?.aiCli === 'gemini';
-    const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
-    const args = isGemini
-      ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
-      : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
 
     const proc = Bun.spawn(
       [bin, ...args],
@@ -1260,7 +1271,7 @@ async function start() {
             uptime: Math.floor((Date.now() - startTime) / 1000),
             runtime: `Bun ${Bun.version}`,
             cards: state.cards.length,
-            executionMode: 'claude-cli',
+            executionMode: 'agent-cli',
             authRequired: !!BOTLANES_PASSWORD,
           });
         }
