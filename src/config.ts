@@ -2,11 +2,11 @@
  * Shared config for botlanes CLI + server.
  *
  * Resolution:
- *   1. MC_STATE_FILE env → derive stateDir from parent
+ *   1. BOTLANES_STATE_FILE env → derive stateDir from parent
  *   2. git rev-parse --show-toplevel → projectDir/.gstack/
  *   3. process.cwd() fallback (non-git environments)
  *
- * The CLI computes the config and passes MC_STATE_FILE to the
+ * The CLI computes the config and passes BOTLANES_STATE_FILE to the
  * spawned server. The server derives all paths from that env var.
  */
 
@@ -42,7 +42,7 @@ export function getGitRoot(): string | null {
 /**
  * Resolve all botlanes config paths.
  *
- * If MC_STATE_FILE is set (e.g. by CLI when spawning server, or by
+ * If BOTLANES_STATE_FILE is set (e.g. by CLI when spawning server, or by
  * tests for isolation), all paths are derived from it. Otherwise, the
  * project root is detected via git or cwd.
  */
@@ -53,8 +53,8 @@ export function resolveConfig(
   let stateDir: string;
   let projectDir: string;
 
-  if (env.MC_STATE_FILE) {
-    serverStateFile = env.MC_STATE_FILE;
+  if (env.BOTLANES_STATE_FILE) {
+    serverStateFile = env.BOTLANES_STATE_FILE;
     stateDir = path.dirname(serverStateFile);
     projectDir = path.dirname(stateDir); // parent of .gstack/
   } else {

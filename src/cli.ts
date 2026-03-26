@@ -20,8 +20,8 @@ function resolveServerScript(
   metaDir: string = import.meta.dir,
   execPath: string = process.execPath,
 ): string {
-  if (env.MC_SERVER_SCRIPT) {
-    return env.MC_SERVER_SCRIPT;
+  if (env.BOTLANES_SERVER_SCRIPT) {
+    return env.BOTLANES_SERVER_SCRIPT;
   }
 
   // Dev mode: cli.ts runs directly from botlanes/src
@@ -41,7 +41,7 @@ function resolveServerScript(
   }
 
   throw new Error(
-    'Cannot find server.ts. Set MC_SERVER_SCRIPT env or run from the botlanes source tree.'
+    'Cannot find server.ts. Set BOTLANES_SERVER_SCRIPT env or run from the botlanes source tree.'
   );
 }
 
@@ -107,7 +107,7 @@ async function startServer(): Promise<ServerState> {
 
   const proc = Bun.spawn(['bun', 'run', getServerScript()], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, MC_STATE_FILE: config.serverStateFile },
+    env: { ...process.env, BOTLANES_STATE_FILE: config.serverStateFile },
   });
 
   // Don't hold the CLI open

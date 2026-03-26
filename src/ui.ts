@@ -14,7 +14,7 @@ export function generateBoardHTML(basePath: string = ''): string {
 </head>
 <body>
   <div id="app"></div>
-  <script>window.MC_BASE_PATH = "${bp}";</script>
+  <script>window.BOTLANES_BASE_PATH = "${bp}";</script>
   <script type="module" src="${bp}/public/app.js"></script>
 </body>
 </html>`;

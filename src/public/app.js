@@ -23,7 +23,7 @@ function MarkdownContent({ text, class: className }) {
   return html`<div ref=${ref} class="md-content ${className || ''}"></div>`;
 }
 
-const BASE_PATH = window.MC_BASE_PATH || '';
+const BASE_PATH = window.BOTLANES_BASE_PATH || '';
 
 const STATUS_COLORS = {
   idle: '#9CA3AF',
@@ -140,7 +140,7 @@ function App() {
   const [preselectedProjectId, setPreselectedProjectId] = useState(null);
   const [collapsedProjects, setCollapsedProjects] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('mc_collapsed_projects') || '{}');
+      return JSON.parse(localStorage.getItem('BOTLANES_collapsed_projects') || '{}');
     } catch { return {}; }
   });
 
@@ -169,7 +169,7 @@ function App() {
   }, [refreshState]);
 
   useEffect(() => {
-    localStorage.setItem('mc_collapsed_projects', JSON.stringify(collapsedProjects));
+    localStorage.setItem('BOTLANES_collapsed_projects', JSON.stringify(collapsedProjects));
   }, [collapsedProjects]);
 
   const toggleProjectCollapse = (projectId) => {
@@ -429,11 +429,11 @@ function Card({ card, onClick }) {
   };
 
   const status = card.status || 'idle';
-  const needsPatrick = card.attentionMode === 'waiting_on_patrick' || (card.derived && card.derived.attentionLevel === 'patrick');
+  const needsHuman = card.attentionMode === 'waiting_on_human' || (card.derived && card.derived.attentionLevel === 'human');
 
   return html`
     <div
-      class="card card--status-${status} ${isDragging ? 'dragging' : ''} ${needsPatrick ? 'card--needs-patrick' : ''} ${status === 'awaiting_human' ? 'awaiting-human' : ''}"
+      class="card card--status-${status} ${isDragging ? 'dragging' : ''} ${needsHuman ? 'card--needs-human' : ''} ${status === 'awaiting_human' ? 'awaiting-human' : ''}"
       draggable="true"
       onDragStart=${onDragStart}
       onDragEnd=${onDragEnd}
@@ -460,9 +460,9 @@ function AttentionChip({ card }) {
   const derived = card.derived || {};
   const unreadCommentCount = Number(derived.unreadCommentCount || 0);
   const hasUnreadOutput = !!derived.hasUnreadOutput;
-  const needsPatrick = card.attentionMode === 'waiting_on_patrick' || derived.attentionLevel === 'patrick';
+  const needsHuman = card.attentionMode === 'waiting_on_human' || derived.attentionLevel === 'human';
 
-  if (needsPatrick) {
+  if (needsHuman) {
     if (unreadCommentCount > 0) {
       const label = unreadCommentCount === 1 ? '1 unread comment' : (unreadCommentCount > 9 ? '9+' : unreadCommentCount) + ' unread comments';
       return html`<span class="attention-chip attention-chip--comments" title="${label}">${unreadCommentCount > 9 ? '9+' : unreadCommentCount}</span>`;
@@ -484,12 +484,179 @@ function AttentionChip({ card }) {
 
 function AttentionPill({ card }) {
   const derived = card.derived || {};
-  const needsPatrick = card.attentionMode === 'waiting_on_patrick' || derived.attentionLevel === 'patrick';
-  if (!needsPatrick) return null;
-  const label = card.status === 'awaiting_human' ? 'Awaiting Human' : 'Needs Patrick';
+  const needsHuman = card.attentionMode === 'waiting_on_human' || derived.attentionLevel === 'human';
+  if (!needsHuman) return null;
+  const label = card.status === 'awaiting_human' ? 'Awaiting Human' : 'Needs Human';
   return html`
     <div class="attention-pill-row">
       <span class="attention-pill" title="${card.attentionReason || ''}">${label}</span>
+    </div>
+  `;
+}
+
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function fileTypeIcon(mimeType) {
+  if (!mimeType) return '📎';
+  if (mimeType.startsWith('image/')) return '🖼';
+  if (mimeType === 'application/pdf') return '📄';
+  if (mimeType.startsWith('audio/')) return '🎵';
+  if (mimeType.startsWith('video/')) return '🎬';
+  if (mimeType.includes('spreadsheet') || mimeType === 'text/csv') return '📊';
+  if (mimeType.includes('wordprocessing')) return '📝';
+  if (mimeType.includes('presentation')) return '📑';
+  if (mimeType.startsWith('text/')) return '📃';
+  return '📎';
+}
+
+function AttachmentSection({ card, onRefresh }) {
+  const [uploading, setUploading] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [expandedImage, setExpandedImage] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const attachments = card.attachments || [];
+
+  const uploadFiles = async (files) => {
+    const fileList = Array.from(files).filter(f => f.size > 0);
+    if (!fileList.length) return;
+
+    for (const file of fileList) {
+      const uploadId = Math.random().toString(36).slice(2);
+      setUploading(prev => [...prev, { id: uploadId, name: file.name, progress: 0 }]);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(BASE_PATH + '/api/cards/' + card.id + '/upload', {
+          method: 'POST',
+          credentials: 'include',
+          body: form,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          let msg;
+          try { msg = JSON.parse(text).error; } catch { msg = text || 'Upload failed'; }
+          alert(msg);
+        } else {
+          onRefresh();
+        }
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
+      } finally {
+        setUploading(prev => prev.filter(u => u.id !== uploadId));
+      }
+    }
+  };
+
+  const deleteAttachment = async (attachmentId) => {
+    if (!confirm('Remove this attachment?')) return;
+    try {
+      await apiFetch('/api/cards/' + card.id + '/attachments/' + attachmentId, { method: 'DELETE' });
+      onRefresh();
+    } catch (err) {
+      alert('Failed to remove: ' + err.message);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    uploadFiles(e.dataTransfer.files);
+  };
+
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length) uploadFiles(files);
+  }, [card.id]);
+
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handlePaste]);
+
+  return html`
+    <div class="attachment-section">
+      <label class="label">Attachments</label>
+
+      <div
+        class="attachment-dropzone ${isDragOver ? 'drag-over' : ''}"
+        onDragOver=${(e) => { e.preventDefault(); setIsDragOver(true); }}
+        onDragLeave=${() => setIsDragOver(false)}
+        onDrop=${handleDrop}
+        onClick=${() => fileInputRef.current?.click()}
+      >
+        <input
+          ref=${fileInputRef}
+          type="file"
+          multiple
+          style="display:none;"
+          onChange=${(e) => { uploadFiles(e.target.files); e.target.value = ''; }}
+        />
+        <span class="attachment-dropzone-text">
+          ${isDragOver ? 'Drop to attach' : 'Click or drop files — paste screenshots with ⌘V'}
+        </span>
+      </div>
+
+      ${uploading.length > 0 && html`
+        <div class="attachment-uploading">
+          ${uploading.map(u => html`
+            <div key=${u.id} class="attachment-uploading-item">
+              <span class="attachment-uploading-name">${u.name}</span>
+              <span class="attachment-uploading-spinner"></span>
+            </div>
+          `)}
+        </div>
+      `}
+
+      ${attachments.length > 0 && html`
+        <div class="attachment-list">
+          ${attachments.map(att => {
+            const isImage = att.mimeType?.startsWith('image/');
+            const url = BASE_PATH + '/api/cards/' + card.id + '/attachments/' + att.id;
+            return html`
+              <div key=${att.id} class="attachment-item">
+                ${isImage ? html`
+                  <img
+                    src=${url}
+                    class="attachment-thumb"
+                    alt=${att.originalName}
+                    onClick=${() => setExpandedImage(expandedImage === att.id ? null : att.id)}
+                  />
+                ` : html`
+                  <span class="attachment-icon">${fileTypeIcon(att.mimeType)}</span>
+                `}
+                <div class="attachment-meta">
+                  <span class="attachment-name" title=${att.originalName}>${att.originalName}</span>
+                  <span class="attachment-size">${formatFileSize(att.sizeBytes || 0)}</span>
+                </div>
+                <button
+                  class="attachment-delete"
+                  onClick=${() => deleteAttachment(att.id)}
+                  title="Remove attachment"
+                >×</button>
+              </div>
+              ${isImage && expandedImage === att.id && html`
+                <div class="attachment-expanded">
+                  <img src=${url} alt=${att.originalName} style="max-width:100%;border-radius:6px;" />
+                </div>
+              `}
+            `;
+          })}
+        </div>
+      `}
     </div>
   `;
 }
@@ -554,7 +721,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
       };
       if (!isAwaitingHuman) {
         payload.attentionMode = attentionMode;
-        payload.attentionReason = attentionMode === 'waiting_on_patrick' ? attentionReason.trim() : null;
+        payload.attentionReason = attentionMode === 'waiting_on_human' ? attentionReason.trim() : null;
       }
 
       await apiFetch(`/api/cards/${card.id}`, {
@@ -782,9 +949,9 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
                 disabled=${isAwaitingHuman}
               >
                 <option value="none">Normal</option>
-                <option value="waiting_on_patrick">Needs Patrick</option>
+                <option value="waiting_on_human">Needs Human</option>
               </select>
-              ${attentionMode === 'waiting_on_patrick' && html`
+              ${attentionMode === 'waiting_on_human' && html`
                 <input
                   class="input-field"
                   placeholder="Reason for attention..."
@@ -795,6 +962,8 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
                 />
               `}
             </div>
+
+            <${AttachmentSection} card=${card} onRefresh=${onRefresh} />
 
             <div class="flex gap-3 mt-4">
               <button class="btn btn-primary flex-1" onClick=${saveEdits} disabled=${isSaving}>

@@ -10,7 +10,7 @@
  *   Server state: <project-root>/.gstack/botlanes-server.json
  *   Board state:  <project-root>/.gstack/botlanes.json
  *   Log files:    <project-root>/.gstack/botlanes-logs/
- *   Port:         random 10000-60000 (or MC_PORT env for debug override)
+ *   Port:         random 10000-60000 (or BOTLANES_PORT env for debug override)
  */
 
 import { resolveConfig, ensureStateDir, readVersionHash, type MCConfig } from './config';
@@ -42,12 +42,12 @@ const config = resolveConfig();
 ensureStateDir(config);
 
 // ─── Base Path (for reverse proxy deployments) ──────────────────
-const MC_BASE_PATH = (process.env.MC_BASE_PATH || '').replace(/\/+$/, '');
+const BOTLANES_BASE_PATH = (process.env.BOTLANES_BASE_PATH || '').replace(/\/+$/, '');
 
 // ─── Claude CLI Integration ─────────────────────────────────────
-const CLAUDE_CONFIG_DIR = process.env.MC_CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude-personal');
-const CLAUDE_BIN = process.env.MC_CLAUDE_BIN || 'claude';
-const AGENT_TIMEOUT_MS = (parseInt(process.env.MC_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
+const CLAUDE_CONFIG_DIR = process.env.BOTLANES_CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+const CLAUDE_BIN = process.env.BOTLANES_CLAUDE_BIN || 'claude';
+const AGENT_TIMEOUT_MS = (parseInt(process.env.BOTLANES_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
 
 type ActiveRun = {
   runId: string;
@@ -57,7 +57,7 @@ type ActiveRun = {
 const ACTIVE_RUNS = new Map<string, ActiveRun>();
 let SERVER_PORT = 0;
 
-type AttentionLevel = 'none' | 'output' | 'comment' | 'patrick';
+type AttentionLevel = 'none' | 'output' | 'comment' | 'human';
 
 type CardAttentionDerived = {
   logUpdatedAt: string | null;
@@ -97,28 +97,86 @@ export function sanitizeAttachmentName(originalName: string): string {
   return `${stem}${ext}`.slice(0, 200);
 }
 
-export function detectImageMime(bytes: Uint8Array, originalName: string = ''): string | null {
+export function detectMime(bytes: Uint8Array, originalName: string = ''): string {
+  // PNG
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
     return 'image/png';
   }
+  // JPEG
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'image/jpeg';
   }
+  // GIF
   if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
     return 'image/gif';
   }
+  // WebP
   if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
     return 'image/webp';
+  }
+  // PDF
+  if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return 'application/pdf';
+  }
+  // MP3 (ID3 tag)
+  if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+    return 'audio/mpeg';
+  }
+  // MP3 (frame sync)
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+    return 'audio/mpeg';
+  }
+  // WAV
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45) {
+    return 'audio/wav';
+  }
+  // MP4/M4A/MOV (ftyp box at offset 4)
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    return 'video/mp4';
+  }
+  // WebM
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    return 'video/webm';
   }
 
   const sample = Buffer.from(bytes.slice(0, 2048)).toString('utf-8').trimStart();
   const sampleLower = sample.toLowerCase();
+  // SVG
   if (sampleLower.startsWith('<svg') || sampleLower.startsWith('<?xml') || sampleLower.includes('<svg')) {
     const ext = path.extname(originalName).toLowerCase();
     if (!ext || ext === '.svg') return 'image/svg+xml';
   }
 
-  return null;
+  // Extension fallback for common text/document types
+  const ext = path.extname(originalName).toLowerCase();
+  const extMimeMap: Record<string, string> = {
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.csv': 'text/csv',
+    '.json': 'application/json',
+    '.log': 'text/plain',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.xml': 'application/xml',
+    '.yaml': 'text/yaml',
+    '.yml': 'text/yaml',
+    '.py': 'text/x-python',
+    '.js': 'text/javascript',
+    '.ts': 'text/typescript',
+    '.sh': 'text/x-sh',
+  };
+  if (ext && extMimeMap[ext]) return extMimeMap[ext];
+
+  return 'application/octet-stream';
+}
+
+/** @deprecated Use detectMime instead */
+export function detectImageMime(bytes: Uint8Array, originalName: string = ''): string | null {
+  const mime = detectMime(bytes, originalName);
+  return mime.startsWith('image/') ? mime : null;
 }
 
 function safeRemoveCardUploadsDir(cardId: string): void {
@@ -170,8 +228,8 @@ function decorateCard(card: Card): CardView {
   const hasUnreadOutput = !!logUpdatedAt && (!card.lastViewedAt || logUpdatedAt > card.lastViewedAt);
   const unreadCommentCount = getUnreadCommentCount(card);
   const attentionLevel: AttentionLevel =
-    card.attentionMode === 'waiting_on_patrick'
-      ? 'patrick'
+    card.attentionMode === 'waiting_on_human'
+      ? 'human'
       : unreadCommentCount > 0
         ? 'comment'
         : hasUnreadOutput
@@ -200,8 +258,8 @@ function buildCardApiUrl(cardId: string): string {
 function buildCardAgentEnv(cardId: string): Record<string, string | undefined> {
   return {
     ...process.env,
-    MC_CARD_API_URL: buildCardApiUrl(cardId),
-    MC_AUTH_TOKEN: AUTH_TOKEN,
+    BOTLANES_CARD_API_URL: buildCardApiUrl(cardId),
+    BOTLANES_AUTH_TOKEN: AUTH_TOKEN,
   };
 }
 
@@ -261,7 +319,7 @@ export function buildStagePrompt(params: {
       const attachmentPath = getAttachmentDiskPath(card.id, attachment);
       return `[media attached: ${attachmentPath} (${attachment.mimeType})]`;
     });
-    lines.push(`Card attachments (images you can read):\n${attachmentLines.join('\n')}`);
+    lines.push(`Card attachments (read images directly; treat other files as context at the paths below):\n${attachmentLines.join('\n')}`);
   }
 
   if ((card.tags || []).length > 0) {
@@ -270,7 +328,7 @@ export function buildStagePrompt(params: {
 
   lines.push(
     `If you need human input to proceed, ask exactly one clear question by POSTing to the botlanes callback URL in this environment:`,
-    `curl -sS -X POST "$MC_CARD_API_URL/question" \\\n  -H "Authorization: Bearer $MC_AUTH_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data '{"text":"<your question here>"}'`,
+    `curl -sS -X POST "$BOTLANES_CARD_API_URL/question" \\\n  -H "Authorization: Bearer $BOTLANES_AUTH_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data '{"text":"<your question here>"}'`,
     `After posting the question, stop and wait. Do not guess, do not continue with placeholder assumptions. When the human replies in the card UI their response will be sent to you as a new invocation.`,
   );
 
@@ -469,9 +527,9 @@ async function startCardSessionRun(params: {
 }
 
 // ─── Auth ───────────────────────────────────────────────────────
-const MC_PASSWORD = process.env.MISSION_CONTROL_PASSWORD || '';
+const BOTLANES_PASSWORD = process.env.MISSION_CONTROL_PASSWORD || '';
 const COOKIE_SECRET = crypto.randomBytes(32).toString('hex');
-const COOKIE_NAME = 'mc_session';
+const COOKIE_NAME = 'BOTLANES_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 days in seconds
 
 const AUTH_TOKEN = crypto.randomUUID(); // For CLI → server communication
@@ -500,7 +558,7 @@ function parseCookies(req: Request): Record<string, string> {
 }
 
 function isAuthenticated(req: Request): boolean {
-  if (!MC_PASSWORD) return true; // No password = no auth required
+  if (!BOTLANES_PASSWORD) return true; // No password = no auth required
   const cookies = parseCookies(req);
   const token = cookies[COOKIE_NAME];
   return token ? verifyToken(token) : false;
@@ -513,7 +571,7 @@ function isCliAuthenticated(req: Request): boolean {
 
 function setAuthCookie(): string {
   const token = signToken(Date.now().toString());
-  const secure = process.env.NODE_ENV === 'production' || MC_BASE_PATH ? '; Secure' : '';
+  const secure = process.env.NODE_ENV === 'production' || BOTLANES_BASE_PATH ? '; Secure' : '';
   return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}${secure}`;
 }
 
@@ -691,10 +749,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const detectedMime = detectImageMime(bytes, file.name);
-    if (!detectedMime) {
-      return Response.json({ error: 'Only image uploads are supported in v1 (png, jpg, gif, webp, svg)' }, { status: 400 });
-    }
+    const detectedMime = detectMime(bytes, file.name);
 
     const attachmentId = crypto.randomUUID();
     const safeName = sanitizeAttachmentName(file.name || 'upload');
@@ -847,8 +902,8 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       }
       if (('attentionMode' in body || 'attentionReason' in body) && existing.status !== 'awaiting_human') {
         const nextMode: AttentionMode =
-          body.attentionMode === 'waiting_on_patrick'
-            ? 'waiting_on_patrick'
+          body.attentionMode === 'waiting_on_human'
+            ? 'waiting_on_human'
             : 'attentionMode' in body
               ? 'none'
               : existing.attentionMode;
@@ -859,7 +914,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
               : String(body.attentionReason).trim()
             : existing.attentionReason || '';
         updates.attentionMode = nextMode;
-        updates.attentionReason = nextMode === 'waiting_on_patrick' && requestedReason ? requestedReason : null;
+        updates.attentionReason = nextMode === 'waiting_on_human' && requestedReason ? requestedReason : null;
         updates.attentionUpdatedAt = new Date().toISOString();
       }
 
@@ -906,7 +961,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     const now = new Date().toISOString();
     updateCard(config, cardId, {
-      attentionMode: 'waiting_on_patrick',
+      attentionMode: 'waiting_on_human',
       attentionReason: text,
       attentionUpdatedAt: now,
     });
@@ -986,7 +1041,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
       resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
       `Human reply to your question:\n${text}`,
-      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (MC_CARD_API_URL / MC_AUTH_TOKEN env vars) and then stop.`,
+      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (BOTLANES_CARD_API_URL / BOTLANES_AUTH_TOKEN env vars) and then stop.`,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -1128,14 +1183,14 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
 // ─── Port Finding ───────────────────────────────────────────────
 async function findPort(): Promise<number> {
-  const MC_PORT = parseInt(process.env.MC_PORT || '0', 10);
-  if (MC_PORT) {
+  const BOTLANES_PORT = parseInt(process.env.BOTLANES_PORT || '0', 10);
+  if (BOTLANES_PORT) {
     try {
-      const testServer = Bun.serve({ port: MC_PORT, fetch: () => new Response('ok') });
+      const testServer = Bun.serve({ port: BOTLANES_PORT, fetch: () => new Response('ok') });
       testServer.stop();
-      return MC_PORT;
+      return BOTLANES_PORT;
     } catch {
-      throw new Error(`Port ${MC_PORT} is in use`);
+      throw new Error(`Port ${BOTLANES_PORT} is in use`);
     }
   }
 
@@ -1186,7 +1241,7 @@ async function start() {
     fetch: async (req) => {
       try {
         const url = new URL(req.url);
-        const routedPath = stripBasePath(url.pathname, MC_BASE_PATH);
+        const routedPath = stripBasePath(url.pathname, BOTLANES_BASE_PATH);
 
         // Health check — no auth
         if (routedPath === '/health') {
@@ -1206,7 +1261,7 @@ async function start() {
             runtime: `Bun ${Bun.version}`,
             cards: state.cards.length,
             executionMode: 'claude-cli',
-            authRequired: !!MC_PASSWORD,
+            authRequired: !!BOTLANES_PASSWORD,
           });
         }
 
@@ -1218,7 +1273,7 @@ async function start() {
           } catch {
             return Response.json({ error: 'Invalid request body' }, { status: 400 });
           }
-          if (!MC_PASSWORD || body.password === MC_PASSWORD) {
+          if (!BOTLANES_PASSWORD || body.password === BOTLANES_PASSWORD) {
             return new Response(JSON.stringify({ ok: true }), {
               headers: {
                 'Content-Type': 'application/json',
@@ -1251,7 +1306,7 @@ async function start() {
 
         // Board HTML — always served (JS handles login state)
         if (routedPath === '/' && req.method === 'GET') {
-          return new Response(generateBoardHTML(MC_BASE_PATH), {
+          return new Response(generateBoardHTML(BOTLANES_BASE_PATH), {
             headers: { 'Content-Type': 'text/html' },
           });
         }
@@ -1293,7 +1348,7 @@ async function start() {
   console.log(`[botlanes] State file: ${config.serverStateFile}`);
   console.log(`[botlanes] Board file: ${config.boardStateFile}`);
   console.log(`[botlanes] Claude config dir: ${CLAUDE_CONFIG_DIR}`);
-  if (MC_PASSWORD) {
+  if (BOTLANES_PASSWORD) {
     console.log(`[botlanes] Password auth enabled`);
   } else {
     console.log(`[botlanes] No password set — open access`);

@@ -26,7 +26,7 @@ export const COLUMNS = [
 
 export type ColumnId = (typeof COLUMNS)[number]['id'];
 export type CardStatus = 'idle' | 'pending' | 'running' | 'complete' | 'failed' | 'awaiting_human';
-export type AttentionMode = 'none' | 'waiting_on_patrick';
+export type AttentionMode = 'none' | 'waiting_on_human';
 export type ActivityActor = 'system' | 'agent' | 'human';
 export type ActivityType =
   | 'card_created'
@@ -144,7 +144,7 @@ export function isCardStatus(raw: unknown): raw is CardStatus {
 }
 
 function normalizeAttentionMode(raw: unknown): AttentionMode {
-  return raw === 'waiting_on_patrick' ? 'waiting_on_patrick' : 'none';
+  return raw === 'waiting_on_human' ? 'waiting_on_human' : 'none';
 }
 
 function defaultActorForActivityType(type: ActivityType): ActivityActor {
@@ -319,7 +319,7 @@ function normalizeCard(raw: any): Card {
     attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(normalizeAttachment).filter(Boolean) as CardAttachment[] : [],
     lastViewedAt: typeof raw?.lastViewedAt === 'string' && raw.lastViewedAt ? raw.lastViewedAt : null,
     attentionMode,
-    attentionReason: attentionMode === 'waiting_on_patrick' ? attentionReason : null,
+    attentionReason: attentionMode === 'waiting_on_human' ? attentionReason : null,
     attentionUpdatedAt:
       typeof raw?.attentionUpdatedAt === 'string' && raw.attentionUpdatedAt ? raw.attentionUpdatedAt : null,
     activity: Array.isArray(raw?.activity) ? raw.activity.map(normalizeActivityEntry) : [],
