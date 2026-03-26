@@ -1,6 +1,6 @@
 # botlanes
 
-**Turn Claude Code into a repeatable engineering pipeline.**
+**Turn Claude Code or Gemini into a repeatable engineering pipeline.**
 
 <img width="2880" height="1183" alt="board" src="https://github.com/user-attachments/assets/4919361a-ad16-4629-9e86-96ea8747d68e" />
 
@@ -8,7 +8,7 @@
 
 ## The problem
 
-You're shipping with Claude Code. But your process looks like this: one terminal, a dozen open chats, mental notes about what's mid-review and what needs a follow-up. When the agent finishes, you forget to check. When you ask it a question, you're digging through scroll.
+You're shipping with Claude Code or Gemini. But your process looks like this: a bunch of terminals, a dozen open chats, mental notes about what's mid-review and what needs a follow-up. When the agent finishes, you forget to check. When you ask it a question, you're digging through scroll.
 
 There's no system. It's just chaos.
 
@@ -33,7 +33,9 @@ You see every task. Every task has a stage. Every stage runs the right agent. Wh
 ## Prerequisites
 
 - [Bun](https://bun.sh) — runtime and package manager
-- [Claude Code CLI](https://claude.ai/code) — the `claude` binary must be in your `$PATH`
+- One of (or both) AI CLIs:
+  - [Claude Code CLI](https://claude.ai/code) — the `claude` binary must be in your `$PATH`
+  - [Gemini CLI]([https://claude.ai/code](https://geminicli.com/)) — the `gemini` binary must be in your `$PATH`
 - [gstack](https://github.com/garrytan/gstack) — provides the agent skills that power each column
 
 ## Install
@@ -65,7 +67,7 @@ A card is a task. Give it a title and description. Be specific — the agent rea
 
 ### 3. Drag to run
 
-Drag a card from **Backlog** into any stage column. botlanes spawns a `claude` subprocess running the matching gstack skill. The card turns blue: running.
+Drag a card from **Backlog** into any stage column. botlanes spawns a `claude` or `gemini` subprocess (depending on which one you selected for the project) running the matching gstack skill. The card turns blue: running.
 
 ### 4. Watch, respond, move
 
@@ -113,7 +115,7 @@ It doesn't replace your judgment. It just removes the overhead of managing it.
 | Frontend | Preact + `htm` — no build step, ES modules via `esm.sh` |
 | Styling | Tailwind CSS via CDN |
 | State | File-based, stored in `.gstack/` |
-| Agent runner | `Bun.spawn` → `claude` CLI subprocess |
+| Agent runner | `Bun.spawn` → `claude` or `gemini` CLI subprocess |
 
 State is local and file-based. No database, no cloud, no accounts. Your tasks stay on your machine.
 
