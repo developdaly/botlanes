@@ -24,6 +24,8 @@ import {
   addActivity,
   setCardStatus,
   isCardStatus,
+  recoverStaleCards,
+  cleanOldLogs,
   COLUMNS,
   type ActivityActor,
   type AttentionMode,
@@ -406,6 +408,7 @@ function cancelActiveRun(cardId: string, reason?: string): void {
       skill: card.skillTriggered || undefined,
       reason,
     });
+    broadcast('state_changed');
   }
 }
 
@@ -436,6 +439,7 @@ function attachRunExitHandler(params: {
           logFile,
           `\n[botlanes] Process exited with code ${exitCode}; card is awaiting human input so status was preserved\n`,
         );
+        broadcast('state_changed');
         return;
       }
 
@@ -456,6 +460,7 @@ function attachRunExitHandler(params: {
         skill: skill || undefined,
         ...(typeof exitCode === 'number' ? { exitCode } : {}),
       });
+      broadcast('state_changed');
     })
     .catch((err: any) => {
       clearTimeout(timeoutHandle);
@@ -473,9 +478,9 @@ function attachRunExitHandler(params: {
         column,
         skill: skill || undefined,
       });
+      broadcast('state_changed');
     });
-}
-
+  }
 async function startCardSessionRun(params: {
   config: MCConfig;
   card: Card;
@@ -497,6 +502,7 @@ async function startCardSessionRun(params: {
     column: card.column,
     skill,
   });
+  broadcast('state_changed');
   const { getProject } = await import('./state');
   const project = card.projectId ? getProject(config, card.projectId) : null;
   const isGemini = project?.aiCli === 'gemini';
@@ -538,16 +544,25 @@ async function startCardSessionRun(params: {
     }
   }
 
-  const proc = Bun.spawn(
-    [bin, ...args],
-    {
-      cwd: executionCwd,
-      env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
-      stdout: 'pipe',
-      stderr: 'pipe',
-      stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
-    },
-  );
+  let proc: Bun.Subprocess;
+  try {
+    proc = Bun.spawn(
+      [bin, ...args],
+      {
+        cwd: executionCwd,
+        env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
+      },
+    );
+  } catch (err: any) {
+    const errText = `Failed to spawn agent process (${bin}): ${err.message}`;
+    appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
+    setCardStatus(config, card.id, 'failed', { column: card.column, skill });
+    addActivity(config, card.id, 'run_failed', errText, { column: card.column, skill });
+    return;
+  }
 
   const runId = crypto.randomUUID();
   ACTIVE_RUNS.set(card.id, { runId, proc });
@@ -1119,16 +1134,25 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       }
     }
 
-    const proc = Bun.spawn(
-      [bin, ...args],
-      {
-        cwd: executionCwd,
-        env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
-        stdout: 'pipe',
-        stderr: 'pipe',
-        stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
-      },
-    );
+    let proc: Bun.Subprocess;
+    try {
+      proc = Bun.spawn(
+        [bin, ...args],
+        {
+          cwd: executionCwd,
+          env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
+          stdout: 'pipe',
+          stderr: 'pipe',
+          stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
+        },
+      );
+    } catch (err: any) {
+      const errText = `Failed to spawn agent process (${bin}): ${err.message}`;
+      appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
+      setCardStatus(config, cardId, 'failed', { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
+      addActivity(config, cardId, 'run_failed', errText, { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
+      return Response.json({ error: errText }, { status: 500 });
+    }
 
     const runId = crypto.randomUUID();
     ACTIVE_RUNS.set(cardId, { runId, proc });
@@ -1153,6 +1177,33 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       skill: resumedCard.skillTriggered,
     });
 
+    return Response.json({ ok: true, status: 'running' });
+  }
+
+  // POST /api/cards/:id/retry — re-trigger the current skill
+  const retryMatch = url.pathname.match(/^\/api\/cards\/([^/]+)\/retry$/);
+  if (retryMatch && req.method === 'POST') {
+    const cardId = retryMatch[1];
+    const card = getCard(config, cardId);
+    if (!card) return Response.json({ error: 'Card not found' }, { status: 404 });
+    if (!card.skillTriggered) return Response.json({ error: 'Card has no skill to retry' }, { status: 400 });
+
+    cancelActiveRun(cardId, 'retry requested');
+    startCardSessionRun({
+      config,
+      card,
+      skill: card.skillTriggered,
+    }).catch((err: any) => {
+      console.error(`[botlanes] Card session retry failed: ${err.message}`);
+      setCardStatus(config, cardId, 'failed', {
+        column: card.column,
+        skill: card.skillTriggered || undefined,
+      });
+      addActivity(config, cardId, 'run_failed', `Failed to start agent retry: ${err.message}`, {
+        column: card.column,
+        skill: card.skillTriggered || undefined,
+      });
+    });
     return Response.json({ ok: true, status: 'running' });
   }
 
@@ -1288,6 +1339,9 @@ async function start() {
   SERVER_PORT = port;
   const startTime = Date.now();
 
+  recoverStaleCards(config);
+  cleanOldLogs(config);
+
   const server = Bun.serve({
     port,
     hostname: '0.0.0.0', // Allow non-localhost access (for Northflank)
@@ -1308,11 +1362,21 @@ async function start() {
         if (routedPath === '/api/info') {
           const state = loadState(config);
           const version = readVersionHash() || process.env.NORTHFLANK_GIT_COMMIT_SHA || 'dev';
+          const mem = process.memoryUsage();
           return Response.json({
             version: version.substring(0, 7),
             uptime: Math.floor((Date.now() - startTime) / 1000),
             runtime: `Bun ${Bun.version}`,
             cards: state.cards.length,
+            activeRuns: ACTIVE_RUNS.size,
+            binaries: {
+              claude: !!Bun.which('claude'),
+              gemini: !!Bun.which('gemini'),
+            },
+            memory: {
+              rss: Math.round(mem.rss / 1024 / 1024) + 'MB',
+              heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',
+            },
             executionMode: 'agent-cli',
             authRequired: !!BOTLANES_PASSWORD,
           });
@@ -1373,6 +1437,9 @@ async function start() {
           routedUrl.pathname = routedPath;
           const apiRes = await handleApiRoute(routedUrl, req, config);
           apiRes.headers.set('Cache-Control', 'no-store');
+          if (req.method !== 'GET' && apiRes.ok && routedPath !== '/api/events') {
+            broadcast('state_changed');
+          }
           return apiRes;
         }
 

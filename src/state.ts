@@ -7,6 +7,7 @@ import type { MCConfig } from './config';
 export const COLUMNS = [
   { id: 'backlog', name: 'Backlog', skill: null, summary: 'New tasks waiting to be picked up.', detail: 'Raw incoming work lives here until someone moves it into the active workflow.', outcome: null, isCoreFlow: false },
   { id: 'office-hours', name: 'Office Hours', skill: '/office-hours', summary: 'Start here. Reframe the problem before anyone writes code.', detail: 'Six forcing questions challenge the framing, surface better alternatives, and generate the design doc downstream stages build on.', outcome: 'Design Doc', isCoreFlow: true },
+  { id: 'autoplan', name: 'Autoplan', skill: '/autoplan', summary: 'Run the full planning sequence automatically.', detail: 'Automates office hours, CEO review, eng review, and design review in sequence — skipping stages that are not relevant and making calls autonomously. Use when you want the full planning pass without manual hand-offs.', outcome: 'Approved Plan', isCoreFlow: false },
   { id: 'ceo-review', name: 'CEO Review', skill: '/plan-ceo-review', summary: 'Pressure-test the idea and make sure the scope is worth shipping.', detail: 'Strategy review: challenge the plan, sharpen the product call, and decide whether to expand, hold, or cut scope.', outcome: 'Scope Decision', isCoreFlow: false },
   { id: 'eng-review', name: 'Eng Review', skill: '/plan-eng-review', summary: 'Lock architecture, edge cases, tests, and performance expectations.', detail: 'Engineering review validates the execution plan so implementation starts with the right shape, not guesses.', outcome: 'Engineering Plan', isCoreFlow: true },
   { id: 'design-review', name: 'Design Review', skill: '/plan-design-review', summary: 'Critique the UX direction and tighten the interaction model.', detail: 'Design review closes the gaps in hierarchy, states, responsiveness, and trust before pixels get coded.', outcome: 'Design Critique', isCoreFlow: false },
@@ -16,9 +17,11 @@ export const COLUMNS = [
   { id: 'debug', name: 'Debug', skill: '/investigate', summary: 'Investigate what broke and why.', detail: 'Use this when behavior is wrong, unclear, or flaky and the team needs a root-cause pass instead of more guessing.', outcome: 'Fix + Root Cause', isCoreFlow: false },
   { id: 'qa', name: 'QA', skill: '/qa', summary: 'Test the feature like a user and verify fixes.', detail: 'QA checks the real user flow, finds regressions, and confirms the implementation actually works outside the happy path.', outcome: 'QA Report', isCoreFlow: true },
   { id: 'benchmark', name: 'Benchmark', skill: '/benchmark', summary: 'Detect performance regressions before they reach production.', detail: 'Establishes baselines for page load times, Core Web Vitals, and resource sizes. Compares before/after and flags regressions.', outcome: 'Performance Report', isCoreFlow: false },
+  { id: 'security', name: 'Security Audit', skill: '/cso', summary: 'Audit for vulnerabilities before shipping.', detail: 'Full security audit: OWASP Top 10, STRIDE threat modeling, attack surface mapping, dependency CVEs, and secrets scanning. Each finding is independently verified before reporting.', outcome: 'Security Report', isCoreFlow: false },
   { id: 'ship', name: 'Ship', skill: '/ship', summary: 'Merge, version, changelog, push, and open the PR.', detail: 'This is the release step: package the work cleanly so it is ready to land and move forward with confidence.', outcome: 'Merged PR', isCoreFlow: true },
   { id: 'land-and-deploy', name: 'Land & Deploy', skill: '/land-and-deploy', summary: 'Merge the PR, wait for CI, and verify production health.', detail: 'Takes over after Ship creates the PR — merges, waits for the deploy pipeline, and confirms the app is healthy in production.', outcome: 'Live Deploy', isCoreFlow: true },
   { id: 'canary', name: 'Canary', skill: '/canary', summary: 'Watch the live app for errors and regressions post-deploy.', detail: 'Post-deploy monitoring watches for console errors, performance regressions, and page failures. Compares against pre-deploy baselines and alerts on anomalies.', outcome: 'Canary Report', isCoreFlow: false },
+  { id: 'visual-review', name: 'Visual Review', skill: '/design-review', summary: 'Audit the live site for visual issues and fix them.', detail: 'Designer\'s eye QA on the running app: finds spacing issues, hierarchy problems, AI slop patterns, and interaction inconsistencies — then fixes them with before/after evidence.', outcome: 'Visual Fixes', isCoreFlow: false },
   { id: 'docs', name: 'Docs', skill: '/document-release', summary: 'Update project docs to match what shipped.', detail: 'Sync README, architecture notes, and release documentation so future readers see the truth, not stale intent.', outcome: 'Updated Docs', isCoreFlow: false },
   { id: 'retro', name: 'Retro', skill: '/retro', summary: 'Capture lessons from the work and the process.', detail: 'Use retrospective time to distill what worked, what hurt, and what should change next time.', outcome: 'Retro Report', isCoreFlow: false },
   { id: 'done', name: 'Done', skill: null, summary: 'Finished work that is ready to archive visually.', detail: 'Completed cards live here so the active pipeline stays focused on work still in motion.', outcome: null, isCoreFlow: false },
@@ -576,6 +579,70 @@ export function setCardStatus(
   saveState(config, state);
 
   return card;
+}
+
+/**
+ * Find any cards marked as "running" or "pending" and mark them as "failed"
+ * with a reason. This should be called on server startup to handle
+ * crashes or restarts that interrupted agent runs.
+ */
+export function recoverStaleCards(config: MCConfig): void {
+  const state = loadState(config);
+  let changed = false;
+  const now = new Date().toISOString();
+
+  for (const card of state.cards) {
+    if (card.status === 'running' || card.status === 'pending') {
+      const oldStatus = card.status;
+      card.status = 'failed';
+      pushActivity(
+        card,
+        'run_failed',
+        `Interrupted: Server restarted while card was ${oldStatus}`,
+        {
+          fromStatus: oldStatus,
+          toStatus: 'failed',
+          column: card.column,
+          skill: card.skillTriggered || undefined,
+        },
+      );
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveState(config, state);
+  }
+}
+
+/**
+ * Delete log files that are not associated with any current card and
+ * are older than 7 days.
+ */
+export function cleanOldLogs(config: MCConfig): void {
+  const state = loadState(config);
+  const activeLogs = new Set(
+    state.cards.map((c) => c.logFile).filter((f): f is string => !!f),
+  );
+
+  try {
+    const files = fs.readdirSync(config.logsDir);
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    for (const file of files) {
+      if (!file.endsWith('.log')) continue;
+      const fullPath = path.join(config.logsDir, file);
+      if (activeLogs.has(fullPath)) continue;
+
+      try {
+        const stats = fs.statSync(fullPath);
+        if (stats.mtimeMs < weekAgo) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch {}
+    }
+  } catch {}
 }
 
 /**

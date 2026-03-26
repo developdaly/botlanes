@@ -164,8 +164,30 @@ function App() {
 
   useEffect(() => {
     refreshState();
-    const interval = setInterval(refreshState, 2000);
-    return () => clearInterval(interval);
+
+    // SSE for real-time updates
+    const events = new EventSource(BASE_PATH + '/api/events');
+    events.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.event === 'state_changed') {
+          refreshState();
+        }
+      } catch {
+        if (e.data === 'state_changed') refreshState();
+      }
+    };
+    events.onerror = () => {
+      setPollOk(false);
+    };
+
+    // Slower polling as fallback
+    const interval = setInterval(refreshState, 15000);
+
+    return () => {
+      events.close();
+      clearInterval(interval);
+    };
   }, [refreshState]);
 
   useEffect(() => {
@@ -268,6 +290,20 @@ function App() {
 }
 
 function Header({ pollOk, onAddCard, onManageProjects }) {
+  const [showHealth, setShowHealth] = useState(false);
+  const [healthInfo, setHealthInfo] = useState(null);
+
+  const fetchHealth = async () => {
+    try {
+      const info = await apiFetch('/api/info');
+      setHealthInfo(info);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (showHealth) fetchHealth();
+  }, [showHealth]);
+
   return html`
     <header class="flex items-center justify-between px-6 py-3 flex-shrink-0" style="height:56px;background:var(--bg-1);border-bottom:1px solid var(--border);">
       <div class="flex items-center gap-3">
@@ -276,7 +312,14 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <span class="w-2 h-2 rounded-full" style="background:${pollOk ? 'var(--status-complete)' : 'var(--status-failed)'};" title="${pollOk ? 'Connected' : 'Connection Error'}"></span>
+        <button 
+          class="flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--bg-3)] transition-colors"
+          onClick=${() => setShowHealth(true)}
+          title="System Health"
+        >
+          <span class="w-2 h-2 rounded-full" style="background:${pollOk ? 'var(--status-complete)' : 'var(--status-failed)'};" ></span>
+          <span class="text-xs font-mono" style="color:var(--text-tertiary);">HEALTH</span>
+        </button>
         <button class="btn btn-secondary" style="padding:6px 14px;font-size:13px;" onClick=${onManageProjects}>
           Manage Projects
         </button>
@@ -287,7 +330,80 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
           Add Card
         </button>
       </div>
+      ${showHealth && html`<${SystemHealthModal} info=${healthInfo} onClose=${() => setShowHealth(false)} onRefresh=${fetchHealth} />`}
     </header>
+  `;
+}
+
+function SystemHealthModal({ info, onClose, onRefresh }) {
+  if (!info) return null;
+
+  const binaries = info.binaries || {};
+  const allBinariesOk = binaries.claude && binaries.gemini;
+
+  return html`
+    <div class="modal-overlay active" onClick=${onClose}>
+      <div class="modal-panel" style="max-width:400px;" onClick=${e => e.stopPropagation()}>
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="modal-title mb-0">System Health</h2>
+          <button class="btn btn-ghost" onClick=${onClose}>
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div class="space-y-6">
+          <div class="grid grid-cols-2 gap-4">
+            <div class="p-3 rounded-lg" style="background:var(--bg-2);border:1px solid var(--border);">
+              <div class="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Uptime</div>
+              <div class="text-lg font-bold font-mono">${Math.floor(info.uptime / 3600)}h ${Math.floor((info.uptime % 3600) / 60)}m</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background:var(--bg-2);border:1px solid var(--border);">
+              <div class="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Memory (RSS)</div>
+              <div class="text-lg font-bold font-mono">${info.memory?.rss || 'N/A'}</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-secondary);">Binaries</div>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
+                <span class="text-sm font-mono">claude</span>
+                <span class="text-xs px-2 py-0.5 rounded" style="background:${binaries.claude ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
+                  ${binaries.claude ? 'READY' : 'MISSING'}
+                </span>
+              </div>
+              <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
+                <span class="text-sm font-mono">gemini</span>
+                <span class="text-xs px-2 py-0.5 rounded" style="background:${binaries.gemini ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
+                  ${binaries.gemini ? 'READY' : 'MISSING'}
+                </span>
+              </div>
+            </div>
+            ${!allBinariesOk && html`
+              <p class="mt-2 text-xs" style="color:var(--status-failed);">Warning: Some required binaries are missing from PATH.</p>
+            `}
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-secondary);">Active Work</div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="flex flex-col">
+                <span class="text-[10px] text-[var(--text-tertiary)]">Total Cards</span>
+                <span class="text-sm font-bold">${info.cards}</span>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-[10px] text-[var(--text-tertiary)]">Running Agents</span>
+                <span class="text-sm font-bold">${info.activeRuns}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-[var(--border)]">
+            <button class="btn btn-secondary w-full" onClick=${onRefresh}>Refresh Metrics</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -680,6 +796,8 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const [attentionReason, setAttentionReason] = useState(card.attentionReason || '');
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
 
+  const lastCardRef = useRef(card);
+
   const loadActivity = useCallback(async () => {
     try {
       const data = await apiFetch(`/api/cards/${card.id}/activity`);
@@ -690,20 +808,31 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   }, [card.id]);
 
   useEffect(() => {
-    setTitle(card.title || '');
-    setDescription(card.description || '');
-    setTags((card.tags || []).join(', '));
-    setAttentionMode(card.attentionMode || 'none');
-    setAttentionReason(card.attentionReason || '');
-    setLogContent('');
-    setIsLogVisible(false);
-    setActivity([]);
-    loadActivity();
-    markRead();
-  }, [card.id]);
+    if (lastCardRef.current?.id !== card.id) {
+      setTitle(card.title || '');
+      setDescription(card.description || '');
+      setTags((card.tags || []).join(', '));
+      setAttentionMode(card.attentionMode || 'none');
+      setAttentionReason(card.attentionReason || '');
+      setLogContent('');
+      setIsLogVisible(false);
+      setActivity([]);
+      loadActivity();
+      markRead();
+    } else {
+      // It's the same card, sync fields that haven't been edited locally
+      if (title === lastCardRef.current.title) setTitle(card.title || '');
+      if (description === lastCardRef.current.description) setDescription(card.description || '');
+      const oldTags = (lastCardRef.current.tags || []).join(', ');
+      if (tags === oldTags) setTags((card.tags || []).join(', '));
+      if (attentionMode === lastCardRef.current.attentionMode) setAttentionMode(card.attentionMode || 'none');
+      if (attentionReason === (lastCardRef.current.attentionReason || '')) setAttentionReason(card.attentionReason || '');
+    }
+    lastCardRef.current = card;
+  }, [card, loadActivity]);
 
   useEffect(() => {
-    const interval = setInterval(loadActivity, 2000);
+    const interval = setInterval(loadActivity, 5000); // SSE handles most updates, but keep a slow poll
     return () => clearInterval(interval);
   }, [loadActivity]);
 
@@ -806,6 +935,18 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
       onRefresh();
     } catch (err) {
       alert('Failed to move: ' + err.message);
+    }
+  };
+
+  const retryCard = async () => {
+    setIsSaving(true);
+    try {
+      await apiFetch(`/api/cards/${card.id}/retry`, { method: 'POST' });
+      onRefresh();
+    } catch (err) {
+      alert('Failed to retry: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -976,6 +1117,11 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
                 ${isSaving ? 'Saving...' : 'Save Changes'}
               </button>
               <button class="btn btn-secondary" onClick=${fetchLog}>View Logs</button>
+              ${status === 'failed' && card.skillTriggered && html`
+                <button class="btn btn-secondary" style="color:var(--status-complete);border-color:var(--status-complete);" onClick=${retryCard} disabled=${isSaving}>
+                  Retry Skill
+                </button>
+              `}
             </div>
           </div>
 
@@ -1004,8 +1150,24 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
         <!-- Log section -->
         ${isLogVisible && html`
           <div class="card-modal-log">
-            <label class="label mb-2">Full Execution Log</label>
-            <pre class="p-4 rounded-lg text-xs font-mono overflow-auto max-h-[400px]" style="background:var(--bg-2);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);">${logContent}</pre>
+            <div class="flex items-center justify-between mb-2">
+              <label class="label mb-0">Full Execution Log</label>
+              <button class="text-[10px] uppercase font-bold tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]" onClick=${fetchLog}>Refresh Log</button>
+            </div>
+            <pre 
+              ref=${(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+              class="p-4 rounded-lg text-xs font-mono overflow-auto max-h-[400px]" 
+              style="background:var(--bg-2);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;"
+            >${
+              logContent.split('\n').map(line => {
+                const isError = /error|failed|exception|\[stderr\]/i.test(line);
+                const isSystem = /^\[botlanes\]/i.test(line);
+                let color = 'inherit';
+                if (isError) color = '#EF4444';
+                else if (isSystem) color = '#6B7280';
+                return html`<span style="color:${color}">${line}\n</span>`;
+              })
+            }</pre>
           </div>
         `}
       </div>
