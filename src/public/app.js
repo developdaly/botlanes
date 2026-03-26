@@ -296,6 +296,7 @@ function Board({ boardState, collapsedProjects, onToggleCollapse, onCardClick, o
 
   const projects = [{ id: 'null', name: 'Global (No Project)' }, ...(boardState.projects || [])];
   const columns = boardState.columns || [];
+  const [expandedColumn, setExpandedColumn] = useState(null);
 
   const cardsByProjectCol = useMemo(() => {
     const map = {};
@@ -314,9 +315,32 @@ function Board({ boardState, collapsedProjects, onToggleCollapse, onCardClick, o
   }, [projects, columns, boardState.cards]);
 
   return html`
-    <main id="board" style="grid-template-columns: var(--sidebar-width) repeat(${columns.length}, var(--column-width));">
+    <main id="board" style="grid-template-columns: var(--sidebar-width) repeat(${columns.length}, var(--column-width));" onClick=${() => setExpandedColumn(null)}>
       <div class="grid-header grid-header--sticky">Project</div>
-      ${columns.map(col => html`<div class="grid-header">${col.name}</div>`)}
+      ${columns.map(col => html`
+        <div class="grid-header" style="position:relative;">
+          <div class="grid-header__top">
+            <span class="grid-header__name">${col.name}</span>
+            ${col.isCoreFlow && html`<span class="grid-header__core-badge">Core</span>`}
+          </div>
+          ${col.summary && html`
+            <button
+              class="grid-header__summary"
+              onClick=${(e) => { e.stopPropagation(); setExpandedColumn(expandedColumn === col.id ? null : col.id); }}
+            >${col.summary}</button>
+          `}
+          ${expandedColumn === col.id && html`
+            <div class="grid-header__detail" onClick=${(e) => e.stopPropagation()}>
+              <p style="margin:0;font-size:12px;line-height:1.6;color:var(--text-primary);">${col.detail}</p>
+              ${col.outcome && html`
+                <div style="margin-top:8px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-tertiary);">
+                  Output: <span style="color:var(--text-secondary);text-transform:none;font-weight:400;">${col.outcome}</span>
+                </div>
+              `}
+            </div>
+          `}
+        </div>
+      `)}
 
       ${projects.map(project => {
         const isCollapsed = !!collapsedProjects[project.id];

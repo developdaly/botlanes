@@ -68,15 +68,78 @@ body {
   z-index: 30;
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
-  height: 48px;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10px 16px;
+  gap: 3px;
+}
+
+.grid-header__top {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  gap: 6px;
+}
+
+.grid-header__name {
   font-size: 11px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
+}
+
+.grid-header__core-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 5px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.grid-header__summary {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-family: inherit;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: color 0.1s;
+}
+
+.grid-header__summary:hover {
+  color: var(--text-secondary);
+}
+
+.grid-header__detail {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong, #D1D5DB);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 12px 14px;
+  width: 280px;
+  pointer-events: auto;
 }
 
 .grid-header--sticky {
