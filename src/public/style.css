@@ -157,10 +157,12 @@ body {
 
 .project-row.collapsed .project-cell {
   height: 0;
+  min-height: 0;
   padding-top: 0;
   padding-bottom: 0;
   overflow: hidden;
   border-bottom: none;
+  visibility: hidden;
 }
 
 .project-row.collapsed .project-header-cell {
@@ -361,9 +363,10 @@ body {
 
 .card--status-running {
   border-color: transparent;
+  border-width: 4px;
   background:
     linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
-    conic-gradient(from var(--angle), #2563EB, #93C5FD, #2563EB) border-box;
+    conic-gradient(from var(--angle), var(--status-running), #93C5FD, fuchsia, var(--status-running)) border-box;
   animation: spin-gradient 2s linear infinite;
 }
 
@@ -371,7 +374,7 @@ body {
   border-color: transparent;
   background:
     linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
-    conic-gradient(from var(--angle), #2563EB, #93C5FD, #2563EB) border-box;
+    conic-gradient(from var(--angle), var(--status-running), #93C5FD, #2563EB, fuchsia, var(--status-running)) border-box;
 }
 
 /* Modal Styles */

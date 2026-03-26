@@ -4,7 +4,7 @@
  * Architecture:
  *   Bun.serve HTTP on 0.0.0.0 → serves board UI and REST API
  *   Auth: HMAC-signed HttpOnly cookie (browser) + Bearer token (CLI)
- *   No idle timeout — board stays alive for phone access
+ *   No idle timeout — board stays alive
  *
  * State:
  *   Server state: <project-root>/.gstack/botlanes-server.json
@@ -32,9 +32,10 @@ import {
 } from './state';
 import { generateBoardHTML } from './ui';
 import { stripBasePath } from './base-path';
-import * as fs from 'fs';
+import fs from 'node:fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as process from 'process';
 import * as os from 'os';
 
 // ─── Config ─────────────────────────────────────────────────────
@@ -457,8 +458,9 @@ async function startCardSessionRun(params: {
   const project = card.projectId ? getProject(config, card.projectId) : null;
   const isGemini = project?.aiCli === 'gemini';
   const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
+  const prompt = buildStagePrompt({ card, skill, columnName, priorLogFile, isGemini });
   const args = isGemini
-    ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
+    ? ['-p', prompt, '--output-format', 'text', '--approval-mode', 'yolo']
     : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
 
   addActivity(
@@ -478,14 +480,6 @@ async function startCardSessionRun(params: {
       `[skill] ${skill}\n` +
       `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
   );
-
-  const prompt = buildStagePrompt({
-    card,
-    skill,
-    columnName,
-    priorLogFile,
-    isGemini,
-  });
 
   let executionCwd = config.projectDir;
   if (project?.directory) {
@@ -508,7 +502,7 @@ async function startCardSessionRun(params: {
       env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
       stdout: 'pipe',
       stderr: 'pipe',
-      stdin: new TextEncoder().encode(prompt),
+      stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
     },
   );
 
@@ -679,7 +673,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         .map(dirent => dirent.name)
         .sort();
       return Response.json({ path: resolvedPath, dirs: subdirectories });
-    } catch (err) {
+    } catch (err: any) {
       return Response.json({ error: `Failed to read directory: ${err.message}` }, { status: 500 });
     }
   }
@@ -1028,9 +1022,23 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     const { getProject } = await import('./state');
     const project = resumedCard.projectId ? getProject(config, resumedCard.projectId) : null;
     const isGemini = project?.aiCli === 'gemini';
+    const prompt = [
+      'botlanes stage run — resuming after human reply.',
+      'A human has answered your previous question. Use their reply to continue the work.',
+      `Card title: ${resumedCard.title}`,
+      `Card ID: ${resumedCard.id}`,
+      `Current stage: ${columnName}`,
+      resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
+      resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
+      `Human reply to your question:\n${text}`,
+      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (BOTLANES_CARD_API_URL / BOTLANES_AUTH_TOKEN env vars) and then stop.`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
     const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
     const args = isGemini
-      ? ['-p', '--output-format', 'text', '--approval-mode', 'yolo']
+      ? ['-p', prompt, '--output-format', 'text', '--approval-mode', 'yolo']
       : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
 
     addActivity(
@@ -1051,20 +1059,6 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
     );
 
-    const prompt = [
-      'botlanes stage run — resuming after human reply.',
-      'A human has answered your previous question. Use their reply to continue the work.',
-      `Card title: ${resumedCard.title}`,
-      `Card ID: ${resumedCard.id}`,
-      `Current stage: ${columnName}`,
-      resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
-      resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
-      `Human reply to your question:\n${text}`,
-      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (BOTLANES_CARD_API_URL / BOTLANES_AUTH_TOKEN env vars) and then stop.`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
     let executionCwd = config.projectDir;
     if (project?.directory) {
       executionCwd = path.resolve(config.projectDir, project.directory);
@@ -1084,7 +1078,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
         stdout: 'pipe',
         stderr: 'pipe',
-        stdin: new TextEncoder().encode(prompt),
+        stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
       },
     );
 
