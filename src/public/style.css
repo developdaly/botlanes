@@ -388,6 +388,8 @@ body {
   font-size: 14px;
   line-height: 1.6;
   color: #E2E8F0;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .card-modal-question-reply {

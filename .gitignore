@@ -1,3 +1,4 @@
 /.gstack
 .gstack/
 /botprojects
+.claude/settings.local.json
