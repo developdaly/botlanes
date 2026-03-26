@@ -8,7 +8,7 @@
 
 ## The problem
 
-You're shipping with Claude Code. But your process looks like this: one terminal, a dozen open chats, mental notes about what's mid-review and what needs a follow-up. When the agent finishes, you forget to check. When you ask it a question, you're digging through scroll.
+You're shipping with Claude Code. But your process looks like this: a bunch of terminals, a dozen open chats, mental notes about what's mid-review and what needs a follow-up. When the agent finishes, you forget to check. When you ask it a question, you're digging through scroll.
 
 There's no system. It's just chaos.
 
