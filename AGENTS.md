@@ -32,7 +32,7 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 - Typecheck: `bunx tsc --noEmit`
 
 ## gstack
-Use the `/browse` skill from `gstack` for all web browsing.
+Use the `/browse` skill from `gstack` for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
 
 ### Available Skills:
 - `/office-hours`
@@ -62,4 +62,4 @@ Use the `/browse` skill from `gstack` for all web browsing.
 - `/unfreeze`
 - `/gstack-upgrade`
 
-If `gstack` skills are not working, run `cd ~/.gemini/skills/gstack && ./setup` to build the binary and register the skills.
+If `gstack` skills are not working, run `cd .claude-personal/skills/gstack && ./setup` to build the binary and register the skills.
