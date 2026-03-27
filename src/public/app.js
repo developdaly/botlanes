@@ -533,6 +533,11 @@ function Board({ boardState, collapsedProjects, onToggleCollapse, onCardClick, o
                   Output: <span style="color:var(--text-secondary);text-transform:none;font-weight:400;">${col.outcome}</span>
                 </div>
               `}
+              ${col.skillTokenCount != null && html`
+                <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary);">
+                  ~${Math.round(col.skillTokenCount / 1000)}K tokens
+                </div>
+              `}
             </div>
           `}
         </div>

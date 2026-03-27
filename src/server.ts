@@ -53,6 +53,34 @@ const CLAUDE_BIN = process.env.BOTLANES_CLAUDE_BIN || 'claude';
 const GEMINI_BIN = process.env.BOTLANES_GEMINI_BIN || 'gemini';
 const AGENT_TIMEOUT_MS = (parseInt(process.env.BOTLANES_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
 
+// ─── Skill Token Counts ──────────────────────────────────────────
+// Approximate token count from file byte size (chars / 4).
+function computeSkillTokenCount(skillSlug: string): number | null {
+  const searchDirs = [
+    path.join(os.homedir(), '.claude', 'skills', 'gstack'),
+    path.join(os.homedir(), '.gemini', 'skills', 'gstack'),
+  ];
+  for (const base of searchDirs) {
+    const skillMd = path.join(base, skillSlug, 'SKILL.md');
+    try {
+      const stat = fs.statSync(skillMd);
+      return Math.round(stat.size / 4);
+    } catch {
+      // not found in this location, try next
+    }
+  }
+  return null;
+}
+
+// Pre-compute at startup: skill slug → token count
+const SKILL_TOKEN_COUNTS = new Map<string, number | null>();
+for (const col of COLUMNS) {
+  if (col.skill && col.skill.startsWith('/')) {
+    const slug = col.skill.slice(1);
+    SKILL_TOKEN_COUNTS.set(col.skill, computeSkillTokenCount(slug));
+  }
+}
+
 type ActiveRun = {
   runId: string;
   proc: Bun.Subprocess;
@@ -725,7 +753,10 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
   if (url.pathname === '/api/state' && req.method === 'GET') {
     const state = loadState(config);
     return Response.json({
-      columns: COLUMNS,
+      columns: COLUMNS.map((col) => ({
+        ...col,
+        skillTokenCount: col.skill ? (SKILL_TOKEN_COUNTS.get(col.skill) ?? null) : null,
+      })),
       projects: state.projects || [],
       cards: state.cards.map((card) => {
         const decorated = decorateCard(card);
