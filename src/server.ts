@@ -1453,8 +1453,8 @@ async function start() {
             cards: state.cards.length,
             activeRuns: ACTIVE_RUNS.size,
             binaries: {
-              claude: !!Bun.which('claude'),
-              gemini: !!Bun.which('gemini'),
+              [CLAUDE_BIN]: CLAUDE_BIN.startsWith('/') ? fs.existsSync(CLAUDE_BIN) : !!Bun.which(CLAUDE_BIN),
+              [GEMINI_BIN]: GEMINI_BIN.startsWith('/') ? fs.existsSync(GEMINI_BIN) : !!Bun.which(GEMINI_BIN),
             },
             projects,
             memory: {
