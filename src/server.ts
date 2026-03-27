@@ -310,9 +310,31 @@ function buildCardAgentEnv(cardId: string): Record<string, string | undefined> {
   };
 }
 
-function appendLog(logFile: string, text: string): void {
-  fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  fs.appendFileSync(logFile, text, { encoding: 'utf-8', mode: 0o600 });
+export const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
+export function appendLog(logFile: string, text: string): void {
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    
+    try {
+      if (fs.existsSync(logFile)) {
+        const stats = fs.statSync(logFile);
+        if (stats.size > MAX_LOG_SIZE_BYTES) {
+          return; // Already truncated
+        }
+        if (stats.size + text.length > MAX_LOG_SIZE_BYTES) {
+          fs.appendFileSync(logFile, '\n[botlanes] Log size limit reached. Further output suppressed.\n', { encoding: 'utf-8', mode: 0o600 });
+          return;
+        }
+      }
+    } catch (err: any) {
+      // Ignore stat errors (e.g. race with deletion)
+    }
+
+    fs.appendFileSync(logFile, text, { encoding: 'utf-8', mode: 0o600 });
+  } catch (err: any) {
+    console.error(`[botlanes] Failed to append to log ${logFile}: ${err.message}`);
+  }
 }
 
 async function pipeStreamToLog(
@@ -749,6 +771,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     }
     const { createProject } = await import('./state');
     const project = createProject(config, body.name, body.directory, body.aiCli);
+    broadcast('state_changed');
     return Response.json(project, { status: 201 });
   }
 
@@ -764,6 +787,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       if (typeof body.directory === 'string') updates.directory = body.directory;
       if (typeof body.aiCli === 'string') updates.aiCli = body.aiCli;
       const project = updateProject(config, projectId, updates);
+      broadcast('state_changed');
       return Response.json(project);
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 404 });
@@ -777,6 +801,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     const { deleteProject } = await import('./state');
     try {
       deleteProject(config, projectId);
+      broadcast('state_changed');
       return Response.json({ ok: true });
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 404 });
@@ -788,6 +813,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     const body = await req.json();
     const projectId = typeof body.projectId === 'string' && body.projectId ? body.projectId : null;
     const card = createCard(config, body.title, projectId, body.description, body.tags);
+    broadcast('state_changed');
     return Response.json(card, { status: 201 });
   }
 
@@ -846,6 +872,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       attachments: [...(existing.attachments || []), attachment],
     });
 
+    broadcast('state_changed');
     return Response.json({ card, attachment }, { status: 201 });
   }
 
@@ -887,12 +914,15 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     try {
       fs.rmSync(getAttachmentDiskPath(cardId, attachment), { force: true });
-    } catch {}
-
-    const nextAttachments = (card.attachments || []).filter((entry) => entry.id !== attachmentId);
-    const updatedCard = updateCard(config, cardId, { attachments: nextAttachments });
-    return Response.json({ card: updatedCard, deletedId: attachmentId });
+      const nextAttachments = (card.attachments || []).filter((entry) => entry.id !== attachmentId);
+      const updatedCard = updateCard(config, cardId, { attachments: nextAttachments });
+      broadcast('state_changed');
+      return Response.json({ card: updatedCard, deletedId: attachmentId });
+    } catch (err: any) {
+      return Response.json({ error: err.message }, { status: 404 });
+    }
   }
+
 
   // POST /api/cards/:id/move — move card to column
   const moveMatch = url.pathname.match(/^\/api\/cards\/([^/]+)\/move$/);
@@ -930,6 +960,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
           });
         });
       }
+      broadcast('state_changed');
       return Response.json(result);
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 404 });
@@ -993,6 +1024,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         });
       }
 
+      broadcast('state_changed');
       return Response.json(decorateCard(card));
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 400 });
@@ -1009,6 +1041,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         return Response.json({ error: 'Card not found' }, { status: 404 });
       }
       const card = updateCard(config, cardId, { lastViewedAt: new Date().toISOString() });
+      broadcast('state_changed');
       return Response.json(decorateCard(card));
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 400 });
@@ -1044,6 +1077,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     if (card.logFile) {
       appendLog(card.logFile, `\n[botlanes] Agent requested human input: ${text}\n`);
     }
+    broadcast('state_changed');
     return Response.json({ ok: true, status: 'awaiting_human' });
   }
 
@@ -1080,6 +1114,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       column: resumedCard.column,
       skill: resumedCard.skillTriggered || undefined,
     });
+    broadcast('state_changed');
 
     const columnName = getColumnName(resumedCard.column);
     const { getProject } = await import('./state');
@@ -1215,6 +1250,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       cancelActiveRun(cardId, 'card deleted');
       safeRemoveCardUploadsDir(cardId);
       deleteCard(config, cardId);
+      broadcast('state_changed');
       return Response.json({ ok: true });
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 404 });
@@ -1276,6 +1312,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       const card = addActivity(config, cardId, 'human_comment', text, {
         actor: 'human' as ActivityActor,
       });
+      broadcast('state_changed');
       return Response.json(card.activity);
     } catch (err: any) {
       return Response.json({ error: err.message }, { status: 404 });
@@ -1342,6 +1379,15 @@ async function start() {
   recoverStaleCards(config);
   cleanOldLogs(config);
 
+  // Periodic maintenance every 24 hours
+  setInterval(() => {
+    try {
+      cleanOldLogs(config);
+    } catch (err) {
+      console.error('[botlanes] Periodic maintenance failed:', err);
+    }
+  }, 24 * 60 * 60 * 1000);
+
   const server = Bun.serve({
     port,
     hostname: '0.0.0.0', // Allow non-localhost access (for Northflank)
@@ -1363,6 +1409,12 @@ async function start() {
           const state = loadState(config);
           const version = readVersionHash() || process.env.NORTHFLANK_GIT_COMMIT_SHA || 'dev';
           const mem = process.memoryUsage();
+          
+          const projects = (state.projects || []).map(p => ({
+            name: p.name,
+            exists: fs.existsSync(p.directory),
+          }));
+
           return Response.json({
             version: version.substring(0, 7),
             uptime: Math.floor((Date.now() - startTime) / 1000),
@@ -1373,6 +1425,7 @@ async function start() {
               claude: !!Bun.which('claude'),
               gemini: !!Bun.which('gemini'),
             },
+            projects,
             memory: {
               rss: Math.round(mem.rss / 1024 / 1024) + 'MB',
               heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',

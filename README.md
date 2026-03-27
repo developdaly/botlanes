@@ -73,6 +73,10 @@ Drag a card from **Backlog** into any stage column. botlanes spawns a `claude` o
 
 Open the card to watch live output. If the agent asks you something, the card turns amber and waits. Answer in the UI. When the stage finishes, drag the card forward.
 
+### 5. Attach Multimedia
+
+Need to provide more context? Drag and drop images, videos, documents, or audio directly onto a card. You can also paste screenshots with `⌘V`. These attachments are automatically passed to the agent as multi-modal context during execution.
+
 <img width="2880" height="2420" alt="modal-review" src="https://github.com/user-attachments/assets/2d24fe60-d793-4ec0-a565-4d30be87cfd6" />
 
 <img width="2880" height="2420" alt="modal-complete" src="https://github.com/user-attachments/assets/793354de-c65d-41f7-bd83-06c7bd341be8" />
@@ -85,13 +89,16 @@ Open the card to watch live output. If the agent asks you something, the card tu
 |-------|---------------------|
 | **Backlog** | Parked — nothing runs |
 | **Office Hours** | YC-style product brainstorm — clarify what you're actually building and why |
+| **Autoplan** | Run the full planning sequence automatically |
 | **CEO Review** | Scope and strategy check — is this the right thing to build? |
 | **Eng Review** | Architecture and implementation plan review |
 | **Design** | Visual design and UI decisions |
 | **Implementation** | The agent writes the code |
 | **Code Review** | Pre-landing diff review |
 | **QA** | Automated QA testing and bug fixes |
+| **Security Audit** | CSO-style security review and vulnerability scan |
 | **Ship** | PR creation and merge |
+| **Visual Review** | Designer's eye QA on the live app |
 
 Run stages in any order. Skip what you don't need. Run the same stage twice. You're in control — botlanes just makes sure the right agent runs when you say so.
 

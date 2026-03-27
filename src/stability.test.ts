@@ -12,6 +12,7 @@ import {
   type BoardState
 } from './state';
 import type { MCConfig } from './config';
+import { appendLog, MAX_LOG_SIZE_BYTES } from './server';
 
 describe('stability and troubleshooting', () => {
   let tmpDir: string;
@@ -88,5 +89,25 @@ describe('stability and troubleshooting', () => {
     expect(fs.existsSync(activeLog)).toBe(true);
     expect(fs.existsSync(orphanedNewLog)).toBe(true);
     expect(fs.existsSync(orphanedOldLog)).toBe(false);
+  });
+
+  test('appendLog respects log size limit', () => {
+    const logFile = path.join(config.logsDir, 'truncated.log');
+    
+    // Fill it up just below the limit
+    const nearlyFull = 'x'.repeat(MAX_LOG_SIZE_BYTES - 10);
+    appendLog(logFile, nearlyFull);
+    
+    // This append should cross the limit and trigger truncation message
+    appendLog(logFile, 'this should cause truncation');
+    
+    const content = fs.readFileSync(logFile, 'utf-8');
+    expect(content).toContain('[botlanes] Log size limit reached');
+    expect(content).not.toContain('this should cause truncation');
+    
+    // Subsequent appends should do nothing
+    const sizeAfterTruncation = fs.statSync(logFile).size;
+    appendLog(logFile, 'more data');
+    expect(fs.statSync(logFile).size).toBe(sizeAfterTruncation);
   });
 });

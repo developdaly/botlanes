@@ -13,6 +13,48 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(marked.parse(String(text)));
 }
 
+function LogOutput({ content }) {
+  const segments = useMemo(() => {
+    if (!content) return [];
+
+    const segs = [];
+    let currentLines = [];
+
+    const lines = content.split('\n');
+    for (const line of lines) {
+      if (/^\[botlanes\]|^\[stderr\]/i.test(line)) {
+        if (currentLines.length) {
+          const mdText = currentLines.join('\n').trim();
+          if (mdText) segs.push({ type: 'md', text: mdText });
+          currentLines = [];
+        }
+        segs.push({ type: 'system', text: line });
+      } else {
+        currentLines.push(line);
+      }
+    }
+    if (currentLines.length) {
+      const mdText = currentLines.join('\n').trim();
+      if (mdText) segs.push({ type: 'md', text: mdText });
+    }
+    return segs;
+  }, [content]);
+
+  return html`
+    <div class="log-output-body">
+      ${segments.map((seg, i) => {
+        if (seg.type === 'system') {
+          const isErr = /error|failed|\[stderr\]/i.test(seg.text);
+          const color = isErr ? 'var(--status-failed)' : 'var(--text-tertiary)';
+          return html`<div key=${i} class="log-system-line" style="color:${color};">${seg.text}</div>`;
+        } else {
+          return html`<${MarkdownContent} key=${i} text=${seg.text} class="log-md-block" />`;
+        }
+      })}
+    </div>
+  `;
+}
+
 function MarkdownContent({ text, class: className }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -166,7 +208,14 @@ function App() {
     refreshState();
 
     // SSE for real-time updates
+    console.log('[botlanes] Connecting to SSE...');
     const events = new EventSource(BASE_PATH + '/api/events');
+    
+    events.onopen = () => {
+      console.log('[botlanes] SSE connected');
+      setPollOk(true);
+    };
+
     events.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -174,10 +223,14 @@ function App() {
           refreshState();
         }
       } catch {
-        if (e.data === 'state_changed') refreshState();
+        if (e.data === 'state_changed') {
+          refreshState();
+        }
       }
     };
-    events.onerror = () => {
+
+    events.onerror = (err) => {
+      console.error('[botlanes] SSE error:', err);
       setPollOk(false);
     };
 
@@ -293,16 +346,29 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
   const [showHealth, setShowHealth] = useState(false);
   const [healthInfo, setHealthInfo] = useState(null);
 
-  const fetchHealth = async () => {
+  const fetchHealth = useCallback(async () => {
     try {
       const info = await apiFetch('/api/info');
       setHealthInfo(info);
     } catch {}
-  };
+  }, []);
 
   useEffect(() => {
-    if (showHealth) fetchHealth();
-  }, [showHealth]);
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
+  }, [fetchHealth]);
+
+  const getHealthStatus = () => {
+    if (!pollOk) return 'var(--status-failed)';
+    if (!healthInfo) return 'var(--status-pending)';
+    
+    const binariesOk = healthInfo.binaries?.claude && healthInfo.binaries?.gemini;
+    const projectsOk = (healthInfo.projects || []).every(p => p.exists);
+    
+    if (!binariesOk || !projectsOk) return 'var(--status-failed)';
+    return 'var(--status-complete)';
+  };
 
   return html`
     <header class="flex items-center justify-between px-6 py-3 flex-shrink-0" style="height:56px;background:var(--bg-1);border-bottom:1px solid var(--border);">
@@ -317,7 +383,7 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
           onClick=${() => setShowHealth(true)}
           title="System Health"
         >
-          <span class="w-2 h-2 rounded-full" style="background:${pollOk ? 'var(--status-complete)' : 'var(--status-failed)'};" ></span>
+          <span class="w-2 h-2 rounded-full" style="background:${getHealthStatus()};" ></span>
           <span class="text-xs font-mono" style="color:var(--text-tertiary);">HEALTH</span>
         </button>
         <button class="btn btn-secondary" style="padding:6px 14px;font-size:13px;" onClick=${onManageProjects}>
@@ -382,6 +448,20 @@ function SystemHealthModal({ info, onClose, onRefresh }) {
             ${!allBinariesOk && html`
               <p class="mt-2 text-xs" style="color:var(--status-failed);">Warning: Some required binaries are missing from PATH.</p>
             `}
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-secondary);">Project Paths</div>
+            <div class="space-y-2">
+              ${(info.projects || []).length === 0 ? html`<div class="text-xs italic text-[var(--text-tertiary)]">No projects registered.</div>` : info.projects.map(p => html`
+                <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
+                  <span class="text-sm font-mono truncate mr-2 flex-1">${p.name}</span>
+                  <span class="text-xs px-2 py-0.5 rounded" style="background:${p.exists ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
+                    ${p.exists ? 'OK' : 'MISSING'}
+                  </span>
+                </div>
+              `)}
+            </div>
           </div>
 
           <div>
@@ -783,6 +863,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const [activity, setActivity] = useState([]);
   const [logContent, setLogContent] = useState('');
   const [isLogVisible, setIsLogVisible] = useState(false);
+  const [isLogStreaming, setIsLogStreaming] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [replyText, setReplyText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -797,6 +878,8 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
 
   const lastCardRef = useRef(card);
+  const logScrollRef = useRef(null);
+  const logEsRef = useRef(null);
 
   const loadActivity = useCallback(async () => {
     try {
@@ -819,8 +902,11 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
       setActivity([]);
       loadActivity();
       markRead();
-    } else {
-      // It's the same card, sync fields that haven't been edited locally
+    } else if (lastCardRef.current !== card) {
+      // Prop updated (e.g. via SSE), refresh activity to keep timeline in sync
+      loadActivity();
+      
+      // Sync fields that haven't been edited locally
       if (title === lastCardRef.current.title) setTitle(card.title || '');
       if (description === lastCardRef.current.description) setDescription(card.description || '');
       const oldTags = (lastCardRef.current.tags || []).join(', ');
@@ -829,12 +915,59 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
       if (attentionReason === (lastCardRef.current.attentionReason || '')) setAttentionReason(card.attentionReason || '');
     }
     lastCardRef.current = card;
-  }, [card, loadActivity]);
+  }, [card, loadActivity, title, description, tags, attentionMode, attentionReason]);
 
   useEffect(() => {
     const interval = setInterval(loadActivity, 5000); // SSE handles most updates, but keep a slow poll
     return () => clearInterval(interval);
   }, [loadActivity]);
+
+  // Auto-scroll log to bottom when content updates
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [logContent]);
+
+  // Live log streaming for running cards; auto-show output for complete/failed
+  useEffect(() => {
+    // Close any existing stream when card or status changes
+    if (logEsRef.current) {
+      logEsRef.current.close();
+      logEsRef.current = null;
+    }
+    setIsLogStreaming(false);
+
+    if (card.status === 'running') {
+      setIsLogVisible(true);
+      setLogContent('');
+      setIsLogStreaming(true);
+
+      const es = new EventSource(BASE_PATH + `/api/cards/${card.id}/log/stream`);
+      logEsRef.current = es;
+
+      es.onmessage = (e) => {
+        try {
+          const chunk = JSON.parse(e.data);
+          if (chunk) setLogContent(prev => prev + chunk);
+        } catch {}
+      };
+      es.onerror = () => {
+        setIsLogStreaming(false);
+      };
+
+      return () => {
+        es.close();
+        logEsRef.current = null;
+        setIsLogStreaming(false);
+      };
+    } else if ((card.status === 'complete' || card.status === 'failed') && card.logFile) {
+      setIsLogVisible(true);
+      apiFetch(`/api/cards/${card.id}/log`)
+        .then(text => setLogContent(text || '(no output)'))
+        .catch(() => setLogContent('(could not load output)'));
+    }
+  }, [card.id, card.status, card.logFile]);
 
   const markRead = async () => {
     try {
@@ -1116,7 +1249,9 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
               <button class="btn btn-primary flex-1" onClick=${saveEdits} disabled=${isSaving}>
                 ${isSaving ? 'Saving...' : 'Save Changes'}
               </button>
-              <button class="btn btn-secondary" onClick=${fetchLog}>View Logs</button>
+              <button class="btn btn-secondary" onClick=${isLogVisible ? () => setIsLogVisible(false) : fetchLog}>
+                ${isLogVisible ? 'Hide Output' : 'View Output'}
+              </button>
               ${status === 'failed' && card.skillTriggered && html`
                 <button class="btn btn-secondary" style="color:var(--status-complete);border-color:var(--status-complete);" onClick=${retryCard} disabled=${isSaving}>
                   Retry Skill
@@ -1151,23 +1286,37 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
         ${isLogVisible && html`
           <div class="card-modal-log">
             <div class="flex items-center justify-between mb-2">
-              <label class="label mb-0">Full Execution Log</label>
-              <button class="text-[10px] uppercase font-bold tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]" onClick=${fetchLog}>Refresh Log</button>
+              <div class="flex items-center gap-2">
+                <label class="label mb-0">${isLogStreaming ? 'Live Output' : 'Agent Output'}</label>
+                ${isLogStreaming && html`
+                  <span class="flex items-center gap-1 text-[10px] uppercase font-bold tracking-widest" style="color:#2563EB;">
+                    <span class="status-dot running" style="background:#2563EB;width:6px;height:6px;"></span>
+                    Live
+                  </span>
+                `}
+              </div>
+              ${!isLogStreaming && html`
+                <div class="flex items-center gap-2">
+                  <button class="text-[10px] uppercase font-bold tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]" onClick=${() => {
+                    navigator.clipboard.writeText(logContent);
+                    const btn = document.activeElement;
+                    if (btn) {
+                      const oldText = btn.innerText;
+                      btn.innerText = 'Copied!';
+                      setTimeout(() => { if (btn) btn.innerText = oldText; }, 2000);
+                    }
+                  }}>Copy Log</button>
+                  <button class="text-[10px] uppercase font-bold tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]" onClick=${fetchLog}>Refresh</button>
+                </div>
+              `}
             </div>
-            <pre 
-              ref=${(el) => { if (el) el.scrollTop = el.scrollHeight; }}
-              class="p-4 rounded-lg text-xs font-mono overflow-auto max-h-[400px]" 
-              style="background:var(--bg-2);border:1px solid var(--border);color:var(--text-primary);font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;"
-            >${
-              logContent.split('\n').map(line => {
-                const isError = /error|failed|exception|\[stderr\]/i.test(line);
-                const isSystem = /^\[botlanes\]/i.test(line);
-                let color = 'inherit';
-                if (isError) color = '#EF4444';
-                else if (isSystem) color = '#6B7280';
-                return html`<span style="color:${color}">${line}\n</span>`;
-              })
-            }</pre>
+            <div
+              ref=${logScrollRef}
+              class="p-4 rounded-lg overflow-auto max-h-[400px]"
+              style="background:var(--bg-2);border:1px solid var(--border);"
+            >
+              <${LogOutput} content=${logContent} />
+            </div>
           </div>
         `}
       </div>

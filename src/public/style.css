@@ -574,6 +574,77 @@ body {
   border-top: 1px solid var(--border);
 }
 
+/* Log output renderer */
+.log-output-body {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.log-md-block {
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.log-md-block p {
+  margin: 0 0 8px;
+}
+
+.log-md-block p:last-child {
+  margin-bottom: 0;
+}
+
+.log-md-block ul,
+.log-md-block ol {
+  padding-left: 20px;
+  margin: 4px 0 8px;
+}
+
+.log-md-block li {
+  margin-bottom: 3px;
+}
+
+.log-md-block strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.log-md-block code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.log-md-block pre {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-md-block pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.log-system-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 0;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  opacity: 0.75;
+}
+
 @media (max-width: 768px) {
   .card-modal-body {
     grid-template-columns: 1fr;
