@@ -3,3 +3,4 @@
 /botprojects
 .claude/settings.local.json
 .claude-personal/
+.env
