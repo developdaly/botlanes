@@ -363,7 +363,7 @@ function Header({ pollOk, onAddCard, onManageProjects }) {
     if (!pollOk) return 'var(--status-failed)';
     if (!healthInfo) return 'var(--status-pending)';
     
-    const binariesOk = healthInfo.binaries?.claude && healthInfo.binaries?.gemini;
+    const binariesOk = healthInfo.binaries && Object.values(healthInfo.binaries).length > 0 && Object.values(healthInfo.binaries).every(Boolean);
     const projectsOk = (healthInfo.projects || []).every(p => p.exists);
     
     if (!binariesOk || !projectsOk) return 'var(--status-failed)';
@@ -405,7 +405,7 @@ function SystemHealthModal({ info, onClose, onRefresh }) {
   if (!info) return null;
 
   const binaries = info.binaries || {};
-  const allBinariesOk = binaries.claude && binaries.gemini;
+  const allBinariesOk = Object.values(binaries).length > 0 && Object.values(binaries).every(Boolean);
 
   return html`
     <div class="modal-overlay active" onClick=${onClose}>
@@ -432,18 +432,14 @@ function SystemHealthModal({ info, onClose, onRefresh }) {
           <div>
             <div class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-secondary);">Binaries</div>
             <div class="space-y-2">
-              <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
-                <span class="text-sm font-mono">claude</span>
-                <span class="text-xs px-2 py-0.5 rounded" style="background:${binaries.claude ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
-                  ${binaries.claude ? 'READY' : 'MISSING'}
-                </span>
-              </div>
-              <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
-                <span class="text-sm font-mono">gemini</span>
-                <span class="text-xs px-2 py-0.5 rounded" style="background:${binaries.gemini ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
-                  ${binaries.gemini ? 'READY' : 'MISSING'}
-                </span>
-              </div>
+              ${Object.entries(binaries).map(([name, ready]) => html`
+                <div class="flex items-center justify-between p-2 rounded" style="background:var(--bg-2);">
+                  <span class="text-sm font-mono">${name}</span>
+                  <span class="text-xs px-2 py-0.5 rounded" style="background:${ready ? 'var(--status-complete)' : 'var(--status-failed)'};color:white;">
+                    ${ready ? 'READY' : 'MISSING'}
+                  </span>
+                </div>
+              `)}
             </div>
             ${!allBinariesOk && html`
               <p class="mt-2 text-xs" style="color:var(--status-failed);">Warning: Some required binaries are missing from PATH.</p>
