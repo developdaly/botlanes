@@ -599,7 +599,8 @@ function attachRunExitHandler(params: {
       });
       broadcast('state_changed');
     });
-  }
+}
+
 async function startCardSessionRun(params: {
   config: MCConfig;
   card: Card;
