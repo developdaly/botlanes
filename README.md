@@ -71,7 +71,7 @@ Drag a card from **Backlog** into any stage column. botlanes spawns a `claude` o
 
 ### 4. Watch, respond, move
 
-Open the card to watch live output. If the agent asks you something, the card turns amber and waits. Answer in the UI. When the stage finishes, drag the card forward.
+Open the card to watch live output. If the agent asks you something, the card turns amber and waits. Answer in the UI. **Every comment you post to the timeline is a direct message to the agent**, triggering it to resume and process your feedback. When the stage finishes, drag the card forward.
 
 ### 5. Attach Multimedia
 

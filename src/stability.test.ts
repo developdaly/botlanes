@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   loadState,
-  saveState,
   createCard,
   recoverStaleCards,
   cleanOldLogs,
@@ -20,13 +19,21 @@ describe('stability and troubleshooting', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'botlanes-stability-test-'));
+    const stateDir = path.join(tmpDir, '.gstack');
     config = {
       projectDir: tmpDir,
-      stateDir: path.join(tmpDir, '.gstack'),
-      logsDir: path.join(tmpDir, '.gstack', 'logs'),
-      uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
-      serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
-      boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
+      stateDir,
+      logsDir: path.join(stateDir, 'botlanes-logs'),
+      uploadsDir: path.join(stateDir, 'botlanes-uploads'),
+      serverStateFile: path.join(stateDir, 'server.json'),
+      boardStateFile: path.join(stateDir, 'board.json'),
+      dbFile: path.join(stateDir, 'board.db'),
+      logsSymlinkDir: path.join(tmpDir, 'botlanes-logs'),
+      uploadsSymlinkDir: path.join(tmpDir, 'botlanes-uploads'),
+      designReportsDir: path.join(stateDir, 'design-reports'),
+      qaReportsDir: path.join(stateDir, 'qa-reports'),
+      designReportsSymlinkDir: path.join(tmpDir, 'design-reports'),
+      qaReportsSymlinkDir: path.join(tmpDir, 'qa-reports'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
     fs.mkdirSync(config.logsDir, { recursive: true });
@@ -51,7 +58,7 @@ describe('stability and troubleshooting', () => {
 
     recoverStaleCards(config);
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     const c1 = state.cards.find(c => c.id === card1.id)!;
     const c2 = state.cards.find(c => c.id === card2.id)!;
     const c3 = state.cards.find(c => c.id === card3.id)!;

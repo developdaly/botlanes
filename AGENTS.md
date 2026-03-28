@@ -18,12 +18,13 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 
 ### Backend & Agent Execution
 - The backend is a Bun server written in TypeScript (`src/server.ts`).
+### Backend & Agent Execution
 - **Agent Runner:** The application executes agent tasks by directly spawning the local `claude` CLI as a subprocess (via `Bun.spawn`), not an API or a gateway.
+- **Agent Conversation:** When a human posts a comment to a card in a stage with an active skill, the backend automatically triggers the agent (or resumes the current run) to process the comment as a direct message. This ensures every comment is a conversation with the agent.
 - **Projects & Workspaces:** Cards can be associated with a `Project`. When an agent runs a card, the backend uses the project's `directory` as the `cwd` for the Claude CLI process.
-
 ### State Management
-- State is entirely file-based and stored locally in the `.gstack/` directory.
-- `state.ts` manages the CRUD operations for `Projects` and `Cards`.
+- State is managed via SQLite (using `bun:sqlite`) and stored in `.gstack/botlanes.db`.
+- `state.ts` handles all CRUD operations for `Projects` and `Cards` using targeted SQL queries for scalability.
 - **Cascade Deletions:** When a project is deleted, all associated cards must be cascade-deleted.
 
 ### Multimedia

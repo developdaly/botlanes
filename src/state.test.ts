@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   loadState,
-  saveState,
   createCard,
   getCard,
   addPlan,
@@ -22,13 +21,21 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'botlanes-test-'));
+    const stateDir = path.join(tmpDir, '.gstack');
     config = {
       projectDir: tmpDir,
-      stateDir: path.join(tmpDir, '.gstack'),
-      logsDir: path.join(tmpDir, '.gstack', 'logs'),
-      uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
-      serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
-      boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
+      stateDir,
+      logsDir: path.join(stateDir, 'botlanes-logs'),
+      uploadsDir: path.join(stateDir, 'botlanes-uploads'),
+      serverStateFile: path.join(stateDir, 'server.json'),
+      boardStateFile: path.join(stateDir, 'board.json'),
+      dbFile: path.join(stateDir, 'board.db'),
+      logsSymlinkDir: path.join(tmpDir, 'botlanes-logs'),
+      uploadsSymlinkDir: path.join(tmpDir, 'botlanes-uploads'),
+      designReportsDir: path.join(stateDir, 'design-reports'),
+      qaReportsDir: path.join(stateDir, 'qa-reports'),
+      designReportsSymlinkDir: path.join(tmpDir, 'design-reports'),
+      qaReportsSymlinkDir: path.join(tmpDir, 'qa-reports'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
   });
@@ -43,7 +50,7 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     expect(project.name).toBe('Test Project');
     expect(project.directory).toBe('./test-dir');
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     expect(state.projects).toHaveLength(1);
     expect(state.projects[0].id).toBe(project.id);
   });
@@ -55,7 +62,7 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     expect(updated.name).toBe('Updated Name');
     expect(updated.directory).toBe('./test-dir'); // Should remain unchanged
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     expect(state.projects[0].name).toBe('Updated Name');
   });
 
@@ -70,14 +77,14 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     const card3 = createCard(config, 'Card 3', p2.id); // Different project
     const card4 = createCard(config, 'Card 4', null);  // Global lane
 
-    let state = loadState(config);
+    let state = loadState(config, true);
     expect(state.projects).toHaveLength(2);
     expect(state.cards).toHaveLength(4);
 
     // Delete p1
     deleteProject(config, p1.id);
 
-    state = loadState(config);
+    state = loadState(config, true);
     
     // Project 1 should be gone
     expect(state.projects).toHaveLength(1);
@@ -124,5 +131,22 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     addPlan(config, card.id, 'eng-review', '/plan-eng-review', '### Eng Plan');
     updated = getCard(config, card.id)!;
     expect(updated.plans).toHaveLength(2);
+  });
+
+  test('addActivity records human comments correctly', () => {
+    const { addActivity } = require('./state');
+    const card = createCard(config, 'Test Card');
+    const commentText = 'Test human comment';
+    
+    addActivity(config, card.id, 'human_comment', commentText, {
+      actor: 'human',
+    });
+    
+    const updated = getCard(config, card.id)!;
+    expect(updated.activity).toHaveLength(2); // card_created + human_comment
+    const comment = updated.activity.find(a => a.type === 'human_comment');
+    expect(comment).toBeDefined();
+    expect(comment?.text).toBe(commentText);
+    expect(comment?.actor).toBe('human');
   });
 });

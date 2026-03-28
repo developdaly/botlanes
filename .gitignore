@@ -1,6 +1,9 @@
-/.gstack
 .gstack/
+botlanes-logs/
+botlanes-uploads/
 /botprojects
 .claude/settings.local.json
 .claude-personal/
 .env
+design-reports/
+qa-reports/
