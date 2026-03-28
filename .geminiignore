@@ -1,0 +1,7 @@
+# Allow Gemini agents to read specific subdirectories in .gstack
+!.gstack/
+.gstack/*
+!.gstack/botlanes-logs/
+!.gstack/botlanes-uploads/
+!.gstack/design-reports/
+!.gstack/qa-reports/

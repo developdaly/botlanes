@@ -869,6 +869,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const [replyText, setReplyText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
+  const [activeTab, setActiveTab] = useState('details'); // 'details' | 'plans'
 
   // Edit states
   const [title, setTitle] = useState(card.title || '');
@@ -1103,6 +1104,7 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
   const runningClass = status === 'running' ? ' running' : '';
   const isAwaitingHuman = status === 'awaiting_human';
   const currentProject = projects.find(p => p.id === card.projectId) || { id: 'null', name: 'Global (No Project)' };
+  const plans = card.plans || [];
 
   return html`
     <div class="modal-overlay active" onClick=${onClose}>
@@ -1165,6 +1167,20 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
           `}
         </div>
 
+        <!-- Tabs -->
+        <div class="flex border-b border-[var(--border)] px-5">
+          <button
+            class="px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 ${activeTab === 'details' ? 'border-[var(--accent)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'}"
+            onClick=${() => setActiveTab('details')}
+          >Details</button>
+          ${plans.length > 0 && html`
+            <button
+              class="px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 ${activeTab === 'plans' ? 'border-[var(--accent)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'}"
+              onClick=${() => setActiveTab('plans')}
+            >Plans <span class="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-3)] text-[10px]">${plans.length}</span></button>
+          `}
+        </div>
+
         <!-- Agent question banner -->
         ${isAwaitingHuman && card.attentionReason && html`
           <div class="card-modal-question">
@@ -1194,94 +1210,115 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
           </div>
         `}
 
-        <!-- Body: two columns -->
-        <div class="card-modal-body">
-          <!-- Left: Description & details -->
-          <div class="card-modal-left">
-            <div class="field-group">
-              <label class="label">Description</label>
-              <textarea
-                class="input-field"
-                placeholder="Add a description..."
-                style="min-height:100px; font-size: 13px;"
-                value=${description}
-                onInput=${e => setDescription(e.target.value)}
-              ></textarea>
-            </div>
+        <!-- Body: Content based on activeTab -->
+        ${activeTab === 'details' ? html`
+          <div class="card-modal-body">
+            <!-- Left: Description & details -->
+            <div class="card-modal-left">
+              <div class="field-group">
+                <label class="label">Description</label>
+                <textarea
+                  class="input-field"
+                  placeholder="Add a description..."
+                  style="min-height:100px; font-size: 13px;"
+                  value=${description}
+                  onInput=${e => setDescription(e.target.value)}
+                ></textarea>
+              </div>
 
-            <div class="field-group">
-              <label class="label">Tags</label>
-              <input
-                class="input-field"
-                placeholder="comma-separated tags"
-                style="font-size: 13px;"
-                value=${tags}
-                onInput=${e => setTags(e.target.value)}
-              />
-            </div>
-
-            <div class="field-group">
-              <label class="label">Attention</label>
-              <select
-                class="input-field mb-2"
-                style="font-size: 13px;"
-                value=${attentionMode}
-                onChange=${e => setAttentionMode(e.target.value)}
-                disabled=${isAwaitingHuman}
-              >
-                <option value="none">Normal</option>
-                <option value="waiting_on_human">Needs Human</option>
-              </select>
-              ${attentionMode === 'waiting_on_human' && html`
+              <div class="field-group">
+                <label class="label">Tags</label>
                 <input
                   class="input-field"
-                  placeholder="Reason for attention..."
+                  placeholder="comma-separated tags"
                   style="font-size: 13px;"
-                  value=${attentionReason}
-                  onInput=${e => setAttentionReason(e.target.value)}
-                  disabled=${isAwaitingHuman}
+                  value=${tags}
+                  onInput=${e => setTags(e.target.value)}
                 />
-              `}
-            </div>
-
-            <${AttachmentSection} card=${card} onRefresh=${onRefresh} />
-
-            <div class="flex gap-3 mt-4">
-              <button class="btn btn-primary flex-1" onClick=${saveEdits} disabled=${isSaving}>
-                ${isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-              <button class="btn btn-secondary" onClick=${isLogVisible ? () => setIsLogVisible(false) : fetchLog}>
-                ${isLogVisible ? 'Hide Output' : 'View Output'}
-              </button>
-              ${status === 'failed' && card.skillTriggered && html`
-                <button class="btn btn-secondary" style="color:var(--status-complete);border-color:var(--status-complete);" onClick=${retryCard} disabled=${isSaving}>
-                  Retry Skill
-                </button>
-              `}
-            </div>
-          </div>
-
-          <!-- Right: Timeline -->
-          <div class="card-modal-right">
-            <label class="label">Timeline</label>
-            <div class="activity-trail mb-3">
-              <${ActivityTrail} activity=${activity} columns=${columns} />
-            </div>
-            ${!isAwaitingHuman && html`
-              <div class="flex gap-2">
-                <input
-                  class="input-field flex-1"
-                  placeholder="Add a comment..."
-                  style="font-size: 13px;"
-                  value=${commentText}
-                  onInput=${e => setCommentText(e.target.value)}
-                  onKeyDown=${e => e.key === 'Enter' && !e.shiftKey && postComment()}
-                />
-                <button class="btn btn-secondary" onClick=${postComment} disabled=${!commentText.trim()}>Post</button>
               </div>
-            `}
+
+              <div class="field-group">
+                <label class="label">Attention</label>
+                <select
+                  class="input-field mb-2"
+                  style="font-size: 13px;"
+                  value=${attentionMode}
+                  onChange=${e => setAttentionMode(e.target.value)}
+                  disabled=${isAwaitingHuman}
+                >
+                  <option value="none">Normal</option>
+                  <option value="waiting_on_human">Needs Human</option>
+                </select>
+                ${attentionMode === 'waiting_on_human' && html`
+                  <input
+                    class="input-field"
+                    placeholder="Reason for attention..."
+                    style="font-size: 13px;"
+                    value=${attentionReason}
+                    onInput=${e => setAttentionReason(e.target.value)}
+                    disabled=${isAwaitingHuman}
+                  />
+                `}
+              </div>
+
+              <${AttachmentSection} card=${card} onRefresh=${onRefresh} />
+
+              <div class="flex gap-3 mt-4">
+                <button class="btn btn-primary flex-1" onClick=${saveEdits} disabled=${isSaving}>
+                  ${isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+                <button class="btn btn-secondary" onClick=${isLogVisible ? () => setIsLogVisible(false) : fetchLog}>
+                  ${isLogVisible ? 'Hide Output' : 'View Output'}
+                </button>
+                ${status === 'failed' && card.skillTriggered && html`
+                  <button class="btn btn-secondary" style="color:var(--status-complete);border-color:var(--status-complete);" onClick=${retryCard} disabled=${isSaving}>
+                    Retry Skill
+                  </button>
+                `}
+              </div>
+            </div>
+
+            <!-- Right: Timeline -->
+            <div class="card-modal-right">
+              <label class="label">Timeline</label>
+              <div class="activity-trail mb-3">
+                <${ActivityTrail} activity=${activity} columns=${columns} />
+              </div>
+              ${!isAwaitingHuman && html`
+                <div class="flex gap-2">
+                  <input
+                    class="input-field flex-1"
+                    placeholder="Add a comment..."
+                    style="font-size: 13px;"
+                    value=${commentText}
+                    onInput=${e => setCommentText(e.target.value)}
+                    onKeyDown=${e => e.key === 'Enter' && !e.shiftKey && postComment()}
+                  />
+                  <button class="btn btn-secondary" onClick=${postComment} disabled=${!commentText.trim()}>Post</button>
+                </div>
+              `}
+            </div>
           </div>
-        </div>
+        ` : html`
+          <div class="p-6">
+            <div class="grid grid-cols-1 gap-8">
+              ${[...plans].reverse().map(plan => html`
+                <div key=${plan.id} class="rounded-xl border border-[var(--border)] overflow-hidden bg-[var(--bg-1)] shadow-[var(--shadow-1)]">
+                  <div class="bg-[var(--bg-2)] border-b border-[var(--border)] px-4 py-3 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <span class="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">${columns.find(c => c.id === plan.column)?.name || plan.column}</span>
+                      <span class="text-[10px] text-[var(--text-tertiary)] font-mono">${plan.skill}</span>
+                    </div>
+                    <span class="text-[10px] text-[var(--text-tertiary)]">${formatActivityTime(plan.timestamp)}</span>
+                  </div>
+                  <div class="p-5 max-h-[60vh] overflow-auto">
+                    <${MarkdownContent} text=${plan.text} />
+                  </div>
+                </div>
+              `)}
+            </div>
+          </div>
+        `}
 
         <!-- Log section -->
         ${isLogVisible && html`

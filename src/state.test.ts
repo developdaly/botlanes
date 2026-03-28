@@ -6,6 +6,8 @@ import {
   loadState,
   saveState,
   createCard,
+  getCard,
+  addPlan,
   createProject,
   updateProject,
   deleteProject,
@@ -98,5 +100,29 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
 
     const nonExistent = getProject(config, 'does-not-exist');
     expect(nonExistent).toBeNull();
+  });
+
+  test('addPlan saves and replaces plans correctly', () => {
+    const card = createCard(config, 'Test Card');
+    const planText = '### Initial Plan';
+    
+    // Add first plan
+    addPlan(config, card.id, 'autoplan', '/autoplan', planText);
+    let updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(1);
+    expect(updated.plans[0].column).toBe('autoplan');
+    expect(updated.plans[0].text).toBe(planText);
+    
+    // Replace same stage plan
+    const newPlanText = '### Updated Plan';
+    addPlan(config, card.id, 'autoplan', '/autoplan', newPlanText);
+    updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(1);
+    expect(updated.plans[0].text).toBe(newPlanText);
+    
+    // Add second stage plan
+    addPlan(config, card.id, 'eng-review', '/plan-eng-review', '### Eng Plan');
+    updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(2);
   });
 });

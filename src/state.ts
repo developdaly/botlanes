@@ -101,6 +101,14 @@ export interface CardAttachment {
   lastUsedAt: string | null;
 }
 
+export interface Plan {
+  id: string;
+  column: string;
+  skill: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface Card {
   id: string;
   projectId: string | null;
@@ -113,6 +121,7 @@ export interface Card {
   status: CardStatus;
   logFile: string | null;
   designDocs: string[];
+  plans: Plan[];
   tags: string[];
   attachments: CardAttachment[];
   lastViewedAt: string | null;
@@ -296,6 +305,17 @@ function normalizeProject(raw: any): Project | null {
   return { id, name, directory, createdAt, aiCli };
 }
 
+function normalizePlan(raw: any): Plan | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' && raw.id ? raw.id : crypto.randomUUID();
+  const column = typeof raw.column === 'string' ? raw.column : '';
+  const skill = typeof raw.skill === 'string' ? raw.skill : '';
+  const text = typeof raw.text === 'string' ? raw.text : '';
+  const timestamp = typeof raw.timestamp === 'string' ? raw.timestamp : new Date().toISOString();
+  if (!column || !text) return null;
+  return { id, column, skill, text, timestamp };
+}
+
 function normalizeCard(raw: any): Card {
   const now = new Date().toISOString();
   const column = COLUMNS.some((col) => col.id === raw?.column) ? raw.column : 'backlog';
@@ -318,6 +338,7 @@ function normalizeCard(raw: any): Card {
     status,
     logFile: typeof raw?.logFile === 'string' && raw.logFile ? raw.logFile : null,
     designDocs: Array.isArray(raw?.designDocs) ? raw.designDocs.map(String) : [],
+    plans: Array.isArray(raw?.plans) ? raw.plans.map(normalizePlan).filter(Boolean) as Plan[] : [],
     tags: Array.isArray(raw?.tags) ? raw.tags.map(String) : [],
     attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(normalizeAttachment).filter(Boolean) as CardAttachment[] : [],
     lastViewedAt: typeof raw?.lastViewedAt === 'string' && raw.lastViewedAt ? raw.lastViewedAt : null,
@@ -421,6 +442,7 @@ export function createCard(
     status: 'idle',
     logFile: null,
     designDocs: [],
+    plans: [],
     tags,
     attachments: [],
     lastViewedAt: null,
@@ -512,6 +534,39 @@ export function moveCard(
   saveState(config, state);
 
   return { card, skill, changed: true };
+}
+
+export function addPlan(
+  config: MCConfig,
+  cardId: string,
+  column: string,
+  skill: string,
+  text: string,
+): Card {
+  const state = loadState(config);
+  const idx = state.cards.findIndex((c) => c.id === cardId);
+  if (idx === -1) throw new Error(`Card not found: ${cardId}`);
+  const card = state.cards[idx];
+  if (!card.plans) card.plans = [];
+
+  // If a plan already exists for this stage, replace it. Otherwise append.
+  const existingIdx = card.plans.findIndex((p) => p.column === column);
+  const plan: Plan = {
+    id: crypto.randomUUID(),
+    column,
+    skill,
+    text,
+    timestamp: new Date().toISOString(),
+  };
+
+  if (existingIdx !== -1) {
+    card.plans[existingIdx] = plan;
+  } else {
+    card.plans.push(plan);
+  }
+
+  saveState(config, state);
+  return card;
 }
 
 /**

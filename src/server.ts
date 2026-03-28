@@ -21,6 +21,7 @@ import {
   updateCard,
   deleteCard,
   getCard,
+  addPlan,
   addActivity,
   setCardStatus,
   isCardStatus,
@@ -462,6 +463,24 @@ function cancelActiveRun(cardId: string, reason?: string): void {
   }
 }
 
+function extractPlanFromLog(logFile: string): string {
+  try {
+    if (!fs.existsSync(logFile)) return '';
+    const content = fs.readFileSync(logFile, 'utf-8');
+    const lines = content.split('\n');
+    const mdLines = [];
+    for (const line of lines) {
+      // Filter out system and stderr lines
+      if (!/^\[botlanes\]|^\[stderr\]/i.test(line)) {
+        mdLines.push(line);
+      }
+    }
+    return mdLines.join('\n').trim();
+  } catch {
+    return '';
+  }
+}
+
 function attachRunExitHandler(params: {
   cardId: string;
   runId: string;
@@ -475,7 +494,7 @@ function attachRunExitHandler(params: {
   const { cardId, runId, proc, timeoutHandle, logFile, columnName, column, skill } = params;
 
   void proc.exited
-    .then((exitCode) => {
+    .then(async (exitCode) => {
       clearTimeout(timeoutHandle);
       const active = ACTIVE_RUNS.get(cardId);
       if (!active || active.runId !== runId) {
@@ -501,6 +520,16 @@ function attachRunExitHandler(params: {
           : `${columnName} failed (exit ${exitCode})`;
 
       appendLog(logFile, `\n[botlanes] Process exited with code ${exitCode}\n`);
+
+      // If successful planning stage, extract and save the plan
+      if (exitCode === 0 && ['office-hours', 'autoplan', 'ceo-review', 'eng-review', 'design-review', 'design'].includes(column)) {
+        const planText = extractPlanFromLog(logFile);
+        if (planText) {
+          addPlan(config, cardId, column, skill || '', planText);
+          appendLog(logFile, `\n[botlanes] Extracted and saved stage plan\n`);
+        }
+      }
+
       setCardStatus(config, cardId, status, {
         column,
         skill: skill || undefined,
