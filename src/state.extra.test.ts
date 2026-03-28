@@ -21,14 +21,21 @@ describe('state.ts - Advanced Operations', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'botlanes-advanced-test-'));
+    const stateDir = path.join(tmpDir, '.gstack');
     config = {
       projectDir: tmpDir,
-      stateDir: path.join(tmpDir, '.gstack'),
-      logsDir: path.join(tmpDir, '.gstack', 'logs'),
-      uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
-      serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
-      boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
-      dbFile: path.join(tmpDir, '.gstack', 'board.db'),
+      stateDir,
+      logsDir: path.join(stateDir, 'botlanes-logs'),
+      uploadsDir: path.join(stateDir, 'botlanes-uploads'),
+      serverStateFile: path.join(stateDir, 'server.json'),
+      boardStateFile: path.join(stateDir, 'board.json'),
+      dbFile: path.join(stateDir, 'board.db'),
+      logsSymlinkDir: path.join(tmpDir, 'botlanes-logs'),
+      uploadsSymlinkDir: path.join(tmpDir, 'botlanes-uploads'),
+      designReportsDir: path.join(stateDir, 'design-reports'),
+      qaReportsDir: path.join(stateDir, 'qa-reports'),
+      designReportsSymlinkDir: path.join(tmpDir, 'design-reports'),
+      qaReportsSymlinkDir: path.join(tmpDir, 'qa-reports'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
     fs.mkdirSync(config.logsDir, { recursive: true });

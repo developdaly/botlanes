@@ -5,6 +5,8 @@ import * as os from 'os';
 import {
   loadState,
   createCard,
+  getCard,
+  addPlan,
   createProject,
   updateProject,
   deleteProject,
@@ -19,14 +21,21 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'botlanes-test-'));
+    const stateDir = path.join(tmpDir, '.gstack');
     config = {
       projectDir: tmpDir,
-      stateDir: path.join(tmpDir, '.gstack'),
-      logsDir: path.join(tmpDir, '.gstack', 'logs'),
-      uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
-      serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
-      boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
-      dbFile: path.join(tmpDir, '.gstack', 'board.db'),
+      stateDir,
+      logsDir: path.join(stateDir, 'botlanes-logs'),
+      uploadsDir: path.join(stateDir, 'botlanes-uploads'),
+      serverStateFile: path.join(stateDir, 'server.json'),
+      boardStateFile: path.join(stateDir, 'board.json'),
+      dbFile: path.join(stateDir, 'board.db'),
+      logsSymlinkDir: path.join(tmpDir, 'botlanes-logs'),
+      uploadsSymlinkDir: path.join(tmpDir, 'botlanes-uploads'),
+      designReportsDir: path.join(stateDir, 'design-reports'),
+      qaReportsDir: path.join(stateDir, 'qa-reports'),
+      designReportsSymlinkDir: path.join(tmpDir, 'design-reports'),
+      qaReportsSymlinkDir: path.join(tmpDir, 'qa-reports'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
   });
@@ -98,5 +107,46 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
 
     const nonExistent = getProject(config, 'does-not-exist');
     expect(nonExistent).toBeNull();
+  });
+
+  test('addPlan saves and replaces plans correctly', () => {
+    const card = createCard(config, 'Test Card');
+    const planText = '### Initial Plan';
+    
+    // Add first plan
+    addPlan(config, card.id, 'autoplan', '/autoplan', planText);
+    let updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(1);
+    expect(updated.plans[0].column).toBe('autoplan');
+    expect(updated.plans[0].text).toBe(planText);
+    
+    // Replace same stage plan
+    const newPlanText = '### Updated Plan';
+    addPlan(config, card.id, 'autoplan', '/autoplan', newPlanText);
+    updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(1);
+    expect(updated.plans[0].text).toBe(newPlanText);
+    
+    // Add second stage plan
+    addPlan(config, card.id, 'eng-review', '/plan-eng-review', '### Eng Plan');
+    updated = getCard(config, card.id)!;
+    expect(updated.plans).toHaveLength(2);
+  });
+
+  test('addActivity records human comments correctly', () => {
+    const { addActivity } = require('./state');
+    const card = createCard(config, 'Test Card');
+    const commentText = 'Test human comment';
+    
+    addActivity(config, card.id, 'human_comment', commentText, {
+      actor: 'human',
+    });
+    
+    const updated = getCard(config, card.id)!;
+    expect(updated.activity).toHaveLength(2); // card_created + human_comment
+    const comment = updated.activity.find(a => a.type === 'human_comment');
+    expect(comment).toBeDefined();
+    expect(comment?.text).toBe(commentText);
+    expect(comment?.actor).toBe('human');
   });
 });

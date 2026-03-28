@@ -21,6 +21,7 @@ import {
   updateCard,
   deleteCard,
   getCard,
+  addPlan,
   addActivity,
   setCardStatus,
   isCardStatus,
@@ -166,6 +167,14 @@ function getCardUploadsDir(cardId: string): string {
 
 function getAttachmentDiskPath(cardId: string, attachment: Pick<CardAttachment, 'storedName'>): string {
   return path.join(getCardUploadsDir(cardId), attachment.storedName);
+}
+
+/**
+ * Get the path to an attachment that is safe for an agent to read.
+ * Uses symlinked directories to bypass CLI dot-directory ignore patterns.
+ */
+function getAttachmentAgentPath(cardId: string, attachment: Pick<CardAttachment, 'storedName'>): string {
+  return path.join(config.uploadsSymlinkDir, cardId, attachment.storedName);
 }
 
 function sumAttachmentBytes(attachments: CardAttachment[]): number {
@@ -407,8 +416,10 @@ export function buildStagePrompt(params: {
   columnName: string;
   priorLogFile: string | null;
   isGemini: boolean;
+  humanMessage?: string;
+  isReply?: boolean;
 }): string {
-  const { card, skill, columnName, priorLogFile, isGemini } = params;
+  const { card, skill, columnName, priorLogFile, isGemini, humanMessage, isReply } = params;
   const lines = [
     `botlanes stage run.`,
     `You are the ${isGemini ? 'Gemini' : 'Claude'} agent executing work for this card. This is a fresh invocation for this stage.`,
@@ -418,20 +429,36 @@ export function buildStagePrompt(params: {
     `Requested skill/stage mode: ${skill}`,
   ];
 
+  if (humanMessage) {
+    if (isReply) {
+      lines.push(`Human reply to your previous question:\n${humanMessage}`);
+    } else {
+      lines.push(`Human message (comment to the timeline):\n${humanMessage}`);
+    }
+  }
+
   if (card.description?.trim()) {
     lines.push(`Card description:\n${card.description.trim()}`);
   }
 
   if (priorLogFile) {
-    lines.push(`Prior stage output is saved in this file: ${priorLogFile}\nRead it to understand what was done in previous stages before taking action.`);
+    // Convert .gstack/botlanes-logs/ to botlanes-logs/ for agent access
+    const agentPriorLogFile = priorLogFile.replace(config.logsDir, config.logsSymlinkDir);
+    lines.push(
+      `Prior stage output is saved in this file: ${agentPriorLogFile}\nRead it to understand what was done in previous stages before taking action.`,
+    );
   }
 
   if ((card.attachments || []).length > 0) {
     const attachmentLines = (card.attachments || []).map((attachment) => {
-      const attachmentPath = getAttachmentDiskPath(card.id, attachment);
+      const attachmentPath = getAttachmentAgentPath(card.id, attachment);
       return `[media attached: ${attachmentPath} (${attachment.mimeType})]`;
     });
-    lines.push(`Card attachments (read images directly; treat other files as context at the paths below):\n${attachmentLines.join('\n')}`);
+    lines.push(
+      `Card attachments (read images directly; treat other files as context at the paths below):\n${attachmentLines.join(
+        '\n',
+      )}`,
+    );
   }
 
   if ((card.tags || []).length > 0) {
@@ -476,6 +503,24 @@ function cancelActiveRun(cardId: string, reason?: string): void {
   }
 }
 
+function extractPlanFromLog(logFile: string): string {
+  try {
+    if (!fs.existsSync(logFile)) return '';
+    const content = fs.readFileSync(logFile, 'utf-8');
+    const lines = content.split('\n');
+    const mdLines = [];
+    for (const line of lines) {
+      // Filter out system and stderr lines
+      if (!/^\[botlanes\]|^\[stderr\]/i.test(line)) {
+        mdLines.push(line);
+      }
+    }
+    return mdLines.join('\n').trim();
+  } catch {
+    return '';
+  }
+}
+
 function attachRunExitHandler(params: {
   cardId: string;
   runId: string;
@@ -489,7 +534,7 @@ function attachRunExitHandler(params: {
   const { cardId, runId, proc, timeoutHandle, logFile, columnName, column, skill } = params;
 
   void proc.exited
-    .then((exitCode) => {
+    .then(async (exitCode) => {
       clearTimeout(timeoutHandle);
       const active = ACTIVE_RUNS.get(cardId);
       if (!active || active.runId !== runId) {
@@ -515,6 +560,16 @@ function attachRunExitHandler(params: {
           : `${columnName} failed (exit ${exitCode})`;
 
       appendLog(logFile, `\n[botlanes] Process exited with code ${exitCode}\n`);
+
+      // If successful planning stage, extract and save the plan
+      if (exitCode === 0 && ['office-hours', 'autoplan', 'ceo-review', 'eng-review', 'design-review', 'design'].includes(column)) {
+        const planText = extractPlanFromLog(logFile);
+        if (planText) {
+          addPlan(config, cardId, column, skill || '', planText);
+          appendLog(logFile, `\n[botlanes] Extracted and saved stage plan\n`);
+        }
+      }
+
       setCardStatus(config, cardId, status, {
         column,
         skill: skill || undefined,
@@ -544,23 +599,29 @@ function attachRunExitHandler(params: {
       });
       broadcast('state_changed');
     });
-  }
+}
+
 async function startCardSessionRun(params: {
   config: MCConfig;
   card: Card;
   skill: string;
+  humanMessage?: string;
+  isReply?: boolean;
 }): Promise<void> {
-  const { config, skill } = params;
+  const { config, skill, humanMessage, isReply } = params;
   let card = markAttachmentsUsed(params.card, new Date().toISOString());
   const columnName = getColumnName(card.column);
   const priorLogFile = card.logFile;
   const logFile = path.join(config.logsDir, `${card.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
-  cancelActiveRun(card.id, `stage moved to ${columnName}`);
+  cancelActiveRun(card.id, humanMessage ? (isReply ? 'human replied' : 'human commented') : `stage moved to ${columnName}`);
 
   card = updateCard(config, card.id, {
     skillTriggered: skill,
     logFile,
+    attentionMode: 'none',
+    attentionReason: null,
+    attentionUpdatedAt: new Date().toISOString(),
   });
   card = setCardStatus(config, card.id, 'running', {
     column: card.column,
@@ -571,25 +632,29 @@ async function startCardSessionRun(params: {
   const project = card.projectId ? getProject(config, card.projectId) : null;
   const isGemini = project?.aiCli === 'gemini';
   const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
-  const prompt = buildStagePrompt({ card, skill, columnName, priorLogFile, isGemini });
+  const prompt = buildStagePrompt({ card, skill, columnName, priorLogFile, isGemini, humanMessage, isReply });
   const args = isGemini
     ? ['-p', prompt, '--output-format', 'text', '--approval-mode', 'yolo']
-    : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
+    : ['-p', prompt, '--output-format', 'text', '--dangerously-skip-permissions'];
 
-  addActivity(
-    config,
-    card.id,
-    'run_started',
-    `Started ${columnName} via ${isGemini ? 'Gemini' : 'Claude'}`,
-    { column: card.column, skill },
-  );
+  const activityText = humanMessage
+    ? isReply
+      ? `Resumed ${columnName} after human reply`
+      : `Resumed ${columnName} after human comment`
+    : `Started ${columnName} via ${isGemini ? 'Gemini' : 'Claude'}`;
+
+  addActivity(config, card.id, 'run_started', activityText, {
+    column: card.column,
+    skill,
+  });
 
   appendLog(
     logFile,
-    `\n=== botlanes stage run ===\n` +
+    `\n=== botlanes stage run${humanMessage ? (isReply ? ' (reply)' : ' (comment)') : ''} ===\n` +
       `[started] ${new Date().toISOString()}\n` +
       `[card] ${card.title} (${card.id})\n` +
       `[stage] ${columnName}\n` +
+      (humanMessage ? `[human-message] ${humanMessage}\n` : '') +
       `[skill] ${skill}\n` +
       `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
   );
@@ -617,7 +682,7 @@ async function startCardSessionRun(params: {
         env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : CLAUDE_ENV_OVERRIDE) },
         stdout: 'pipe',
         stderr: 'pipe',
-        stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
+        stdin: 'ignore',
       },
     );
   } catch (err: any) {
@@ -1141,124 +1206,29 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       return Response.json({ error: 'Card is not awaiting human input' }, { status: 400 });
     }
 
-    cancelActiveRun(cardId, 'human replied');
-
-    const logFile = path.join(config.logsDir, `${currentCard.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
-    let resumedCard = updateCard(config, cardId, {
-      logFile,
-      attentionMode: 'none',
-      attentionReason: null,
-      attentionUpdatedAt: new Date().toISOString(),
-    });
-    resumedCard = setCardStatus(config, cardId, 'running', {
-      column: resumedCard.column,
-      skill: resumedCard.skillTriggered || undefined,
-    });
+    const skill = currentCard.skillTriggered;
+    if (!skill) {
+      return Response.json({ error: 'Card has no active skill to resume' }, { status: 400 });
+    }
 
     addActivity(config, cardId, 'human_reply', text, {
       actor: 'human' as ActivityActor,
-      column: resumedCard.column,
-      skill: resumedCard.skillTriggered || undefined,
+      column: currentCard.column,
+      skill: currentCard.skillTriggered || undefined,
     });
-    broadcast('state_changed');
 
-    const columnName = getColumnName(resumedCard.column);
-    const { getProject } = await import('./state');
-    const project = resumedCard.projectId ? getProject(config, resumedCard.projectId) : null;
-    const isGemini = project?.aiCli === 'gemini';
-    const prompt = [
-      'botlanes stage run — resuming after human reply.',
-      'A human has answered your previous question. Use their reply to continue the work.',
-      `Card title: ${resumedCard.title}`,
-      `Card ID: ${resumedCard.id}`,
-      `Current stage: ${columnName}`,
-      resumedCard.skillTriggered ? `Requested skill/stage mode: ${resumedCard.skillTriggered}` : null,
-      resumedCard.logFile ? `Prior output is saved in: ${resumedCard.logFile}\nRead it for context on prior work.` : null,
-      `Human reply to your question:\n${text}`,
-      `Task: continue advancing this card in the ${columnName} stage using the human's answer above. If you need more input, ask one new clear question via the botlanes callback URL (BOTLANES_CARD_API_URL / BOTLANES_AUTH_TOKEN env vars) and then stop.`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    const bin = isGemini ? GEMINI_BIN : CLAUDE_BIN;
-    const args = isGemini
-      ? ['-p', prompt, '--output-format', 'text', '--approval-mode', 'yolo']
-      : ['-p', '--output-format', 'text', '--dangerously-skip-permissions'];
-
-    addActivity(
+    startCardSessionRun({
       config,
-      cardId,
-      'run_started',
-      `Resumed ${columnName} after human reply via ${isGemini ? 'Gemini' : 'Claude'}`,
-      { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined },
-    );
-
-    appendLog(
-      logFile,
-      `\n=== botlanes human reply ===\n` +
-        `[received] ${new Date().toISOString()}\n` +
-        `[card] ${resumedCard.title} (${resumedCard.id})\n` +
-        `[stage] ${columnName}\n` +
-        `[human-reply] ${text}\n` +
-        `[cli] ${isGemini ? 'gemini' : 'claude'}\n\n`,
-    );
-
-    let executionCwd = config.projectDir;
-    if (project?.directory) {
-      executionCwd = path.resolve(config.projectDir, project.directory);
-      if (!fs.existsSync(executionCwd)) {
-        const errText = `Project directory not found: ${executionCwd}`;
-        appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
-        setCardStatus(config, cardId, 'failed', { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
-        addActivity(config, cardId, 'run_failed', errText, { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
-        return Response.json({ error: errText }, { status: 400 });
-      }
-    }
-
-    let proc: Bun.Subprocess;
-    try {
-      proc = Bun.spawn(
-        [bin, ...args],
-        {
-          cwd: executionCwd,
-          env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : CLAUDE_ENV_OVERRIDE) },
-          stdout: 'pipe',
-          stderr: 'pipe',
-          stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
-        },
-      );
-    } catch (err: any) {
-      const errText = `Failed to spawn agent process (${bin}): ${err.message}`;
-      appendLog(logFile, `\n[botlanes] Error: ${errText}\n`);
-      setCardStatus(config, cardId, 'failed', { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
-      addActivity(config, cardId, 'run_failed', errText, { column: resumedCard.column, skill: resumedCard.skillTriggered || undefined });
-      return Response.json({ error: errText }, { status: 500 });
-    }
-
-    const runId = crypto.randomUUID();
-    ACTIVE_RUNS.set(cardId, { runId, proc });
-
-    const timeoutHandle = setTimeout(() => {
-      const active = ACTIVE_RUNS.get(cardId);
-      if (!active || active.runId !== runId) return;
-      appendLog(logFile, `\n[botlanes] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
-      cancelActiveRun(cardId, 'timeout');
-    }, AGENT_TIMEOUT_MS);
-
-    void pipeStreamToLog(proc.stdout, logFile);
-    void pipeStreamToLog(proc.stderr, logFile, '[stderr] ');
-    attachRunExitHandler({
-      cardId,
-      runId,
-      proc,
-      timeoutHandle,
-      logFile,
-      columnName,
-      column: resumedCard.column,
-      skill: resumedCard.skillTriggered,
+      card: currentCard,
+      skill,
+      humanMessage: text,
+      isReply: true,
+    }).catch((err: any) => {
+      console.error(`[botlanes] Resume after reply failed: ${err.message}`);
     });
 
-    return Response.json({ ok: true, status: 'running' });
+    broadcast('state_changed');
+    return Response.json({ ok: true });
   }
 
   // POST /api/cards/:id/retry — re-trigger the current skill
@@ -1358,6 +1328,21 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       const card = addActivity(config, cardId, 'human_comment', text, {
         actor: 'human' as ActivityActor,
       });
+
+      // Trigger/Resume agent if the column has a skill
+      const columnDef = COLUMNS.find((c) => c.id === card.column);
+      if (columnDef?.skill) {
+        startCardSessionRun({
+          config,
+          card,
+          skill: card.skillTriggered || columnDef.skill,
+          humanMessage: text,
+          isReply: false,
+        }).catch((err: any) => {
+          console.error(`[botlanes] Agent trigger after comment failed: ${err.message}`);
+        });
+      }
+
       broadcast('state_changed');
       return Response.json(card.activity);
     } catch (err: any) {

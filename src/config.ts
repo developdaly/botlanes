@@ -17,10 +17,16 @@ export interface MCConfig {
   projectDir: string;
   stateDir: string;
   serverStateFile: string;  // .gstack/botlanes-server.json (pid, port, token)
-  boardStateFile: string;   // .gstack/botlanes.json (legacy JSON migration source)
-  dbFile: string;           // .gstack/botlanes.db (SQLite database)
-  logsDir: string;          // .gstack/botlanes-logs/
-  uploadsDir: string;       // .gstack/botlanes-uploads/
+  boardStateFile: string;   // .gstack/botlanes.json (cards) - DEPRECATED
+  dbFile: string;           // .gstack/botlanes.db (SQLite state)
+  logsDir: string;          // .gstack/botlanes-logs
+  uploadsDir: string;       // .gstack/botlanes-uploads
+  logsSymlinkDir: string;   // botlanes-logs
+  uploadsSymlinkDir: string; // botlanes-uploads
+  designReportsDir: string;  // .gstack/design-reports
+  qaReportsDir: string;      // .gstack/qa-reports
+  designReportsSymlinkDir: string; // design-reports
+  qaReportsSymlinkDir: string;     // qa-reports
 }
 
 /**
@@ -70,8 +76,14 @@ export function resolveConfig(
     serverStateFile,
     boardStateFile: path.join(stateDir, 'botlanes.json'),
     dbFile: path.join(stateDir, 'botlanes.db'),
-    logsDir: path.join(stateDir, 'botlanes-logs/'),
-    uploadsDir: path.join(stateDir, 'botlanes-uploads/'),
+    logsDir: path.join(stateDir, 'botlanes-logs'),
+    uploadsDir: path.join(stateDir, 'botlanes-uploads'),
+    logsSymlinkDir: path.join(projectDir, 'botlanes-logs'),
+    uploadsSymlinkDir: path.join(projectDir, 'botlanes-uploads'),
+    designReportsDir: path.join(stateDir, 'design-reports'),
+    qaReportsDir: path.join(stateDir, 'qa-reports'),
+    designReportsSymlinkDir: path.join(projectDir, 'design-reports'),
+    qaReportsSymlinkDir: path.join(projectDir, 'qa-reports'),
   };
 }
 
@@ -92,49 +104,72 @@ export function ensureStateDir(config: MCConfig): void {
     throw err;
   }
 
-  try {
-    fs.mkdirSync(config.logsDir, { recursive: true });
-  } catch (err: any) {
-    if (err.code === 'EACCES') {
-      throw new Error(`Cannot create logs directory ${config.logsDir}: permission denied`);
+  const dirs = [config.logsDir, config.uploadsDir, config.designReportsDir, config.qaReportsDir];
+  for (const dir of dirs) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (err: any) {
+      if (err.code === 'EACCES') {
+        throw new Error(`Cannot create directory ${dir}: permission denied`);
+      }
+      if (err.code === 'ENOTDIR') {
+        throw new Error(`Cannot create directory ${dir}: a file exists at that path`);
+      }
+      throw err;
     }
-    if (err.code === 'ENOTDIR') {
-      throw new Error(`Cannot create logs directory ${config.logsDir}: a file exists at that path`);
-    }
-    throw err;
   }
 
-  try {
-    fs.mkdirSync(config.uploadsDir, { recursive: true });
-  } catch (err: any) {
-    if (err.code === 'EACCES') {
-      throw new Error(`Cannot create uploads directory ${config.uploadsDir}: permission denied`);
+  // Ensure symlinks exist for agent access (bypassing CLI dot-directory ignore)
+  const symlinks = [
+    [config.logsDir, config.logsSymlinkDir],
+    [config.uploadsDir, config.uploadsSymlinkDir],
+    [config.designReportsDir, config.designReportsSymlinkDir],
+    [config.qaReportsDir, config.qaReportsSymlinkDir],
+  ];
+  for (const [target, link] of symlinks) {
+    try {
+      if (!fs.existsSync(link)) {
+        // Use relative path for symlink if possible
+        const relTarget = path.relative(path.dirname(link), target);
+        fs.symlinkSync(relTarget, link);
+      }
+    } catch (err: any) {
+      // Non-fatal if symlink fails
+      console.error(`[botlanes] Warning: could not create symlink ${link} -> ${target}: ${err.message}`);
     }
-    if (err.code === 'ENOTDIR') {
-      throw new Error(`Cannot create uploads directory ${config.uploadsDir}: a file exists at that path`);
-    }
-    throw err;
   }
 
-  // Ensure .gstack/ is in the project's .gitignore
+  // Ensure .gstack/ and symlinks are in the project's .gitignore
   const gitignorePath = path.join(config.projectDir, '.gitignore');
   try {
-    const content = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!content.match(/^\.gstack\/?$/m)) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      fs.appendFileSync(gitignorePath, `${separator}.gstack/\n`);
+    let content = '';
+    try {
+      content = fs.readFileSync(gitignorePath, 'utf-8');
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') throw err;
     }
-  } catch (err: any) {
-    if (err.code !== 'ENOENT') {
-      // Write warning to server log (visible even in daemon mode)
-      const logPath = path.join(config.stateDir, 'botlanes-server.log');
-      try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
-      } catch {
-        // stateDir write failed too — nothing more we can do
+
+    const required = ['.gstack/', 'botlanes-logs/', 'botlanes-uploads/', 'design-reports/', 'qa-reports/'];
+    let changed = false;
+    for (const item of required) {
+      if (!content.includes(item)) {
+        if (!content.endsWith('\n') && content.length > 0) content += '\n';
+        content += `${item}\n`;
+        changed = true;
       }
     }
-    // ENOENT (no .gitignore) — skip silently
+
+    if (changed) {
+      fs.writeFileSync(gitignorePath, content, 'utf-8');
+    }
+  } catch (err: any) {
+    // Write warning to server log (visible even in daemon mode)
+    const logPath = path.join(config.stateDir, 'botlanes-server.log');
+    try {
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
+    } catch {
+      // stateDir write failed too — nothing more we can do
+    }
   }
 }
 

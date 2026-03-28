@@ -102,6 +102,14 @@ export interface CardAttachment {
   lastUsedAt: string | null;
 }
 
+export interface Plan {
+  id: string;
+  column: string;
+  skill: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface Card {
   id: string;
   projectId: string | null;
@@ -114,6 +122,7 @@ export interface Card {
   status: CardStatus;
   logFile: string | null;
   designDocs: string[];
+  plans: Plan[];
   tags: string[];
   attachments: CardAttachment[];
   lastViewedAt: string | null;
@@ -212,6 +221,15 @@ function initSchema(db: Database): void {
       size_bytes    INTEGER NOT NULL,
       uploaded_at   TEXT NOT NULL,
       last_used_at  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS plans (
+      id        TEXT PRIMARY KEY,
+      card_id   TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      col       TEXT NOT NULL,
+      skill     TEXT NOT NULL,
+      text      TEXT NOT NULL,
+      timestamp TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_activity_card_id        ON activity(card_id);
@@ -396,7 +414,17 @@ function rowToAttachment(row: any): CardAttachment {
   };
 }
 
-function rowToCard(row: any, activities: ActivityEntry[], attachments: CardAttachment[]): Card {
+function rowToPlan(row: any): Plan {
+  return {
+    id: row.id,
+    column: row.col,
+    skill: row.skill,
+    text: row.text,
+    timestamp: row.timestamp,
+  };
+}
+
+function rowToCard(row: any, activities: ActivityEntry[], attachments: CardAttachment[], plans: Plan[]): Card {
   return {
     id: row.id,
     projectId: row.project_id ?? null,
@@ -409,6 +437,7 @@ function rowToCard(row: any, activities: ActivityEntry[], attachments: CardAttac
     status: row.status as CardStatus,
     logFile: row.log_file ?? null,
     designDocs: safeJsonArray(row.design_docs),
+    plans,
     tags: safeJsonArray(row.tags),
     attachments,
     lastViewedAt: row.last_viewed_at ?? null,
@@ -585,6 +614,17 @@ function normalizeProject(raw: any): Project | null {
   return { id, name, directory, createdAt, aiCli };
 }
 
+function normalizePlan(raw: any): Plan | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' && raw.id ? raw.id : crypto.randomUUID();
+  const column = typeof raw.column === 'string' ? raw.column : '';
+  const skill = typeof raw.skill === 'string' ? raw.skill : '';
+  const text = typeof raw.text === 'string' ? raw.text : '';
+  const timestamp = typeof raw.timestamp === 'string' ? raw.timestamp : new Date().toISOString();
+  if (!column || !text) return null;
+  return { id, column, skill, text, timestamp };
+}
+
 function normalizeCard(raw: any): Card {
   const now = new Date().toISOString();
   const column = COLUMNS.some((col) => col.id === raw?.column) ? raw.column : 'backlog';
@@ -607,6 +647,7 @@ function normalizeCard(raw: any): Card {
     status,
     logFile: typeof raw?.logFile === 'string' && raw.logFile ? raw.logFile : null,
     designDocs: Array.isArray(raw?.designDocs) ? raw.designDocs.map(String) : [],
+    plans: Array.isArray(raw?.plans) ? raw.plans.map(normalizePlan).filter(Boolean) as Plan[] : [],
     tags: Array.isArray(raw?.tags) ? raw.tags.map(String) : [],
     attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(normalizeAttachment).filter(Boolean) as CardAttachment[] : [],
     lastViewedAt: typeof raw?.lastViewedAt === 'string' && raw.lastViewedAt ? raw.lastViewedAt : null,
@@ -625,7 +666,8 @@ function fetchCard(db: Database, cardId: string): Card | null {
   if (!row) return null;
   const activities = (db.prepare('SELECT * FROM activity WHERE card_id = ? ORDER BY timestamp ASC').all(cardId) as any[]).map(rowToActivity);
   const attachments = (db.prepare('SELECT * FROM card_attachments WHERE card_id = ?').all(cardId) as any[]).map(rowToAttachment);
-  return rowToCard(row, activities, attachments);
+  const plans = (db.prepare('SELECT * FROM plans WHERE card_id = ? ORDER BY timestamp ASC').all(cardId) as any[]).map(rowToPlan);
+  return rowToCard(row, activities, attachments, plans);
 }
 
 const INSERT_ACTIVITY_STMT = `
@@ -688,6 +730,7 @@ export function loadState(config: MCConfig, includeActivity = false): BoardState
 
   const cardRows = db.prepare('SELECT * FROM cards ORDER BY created_at ASC').all() as any[];
   const attachmentRows = db.prepare('SELECT * FROM card_attachments').all() as any[];
+  const planRows = db.prepare('SELECT * FROM plans ORDER BY timestamp ASC').all() as any[];
 
   const activitiesByCard = new Map<string, ActivityEntry[]>();
   if (includeActivity) {
@@ -706,8 +749,15 @@ export function loadState(config: MCConfig, includeActivity = false): BoardState
     attachmentsByCard.set(row.card_id, list);
   }
 
+  const plansByCard = new Map<string, Plan[]>();
+  for (const row of planRows) {
+    const list = plansByCard.get(row.card_id) ?? [];
+    list.push(rowToPlan(row));
+    plansByCard.set(row.card_id, list);
+  }
+
   const cards = cardRows.map((row) =>
-    rowToCard(row, activitiesByCard.get(row.id) ?? [], attachmentsByCard.get(row.id) ?? [])
+    rowToCard(row, activitiesByCard.get(row.id) ?? [], attachmentsByCard.get(row.id) ?? [], plansByCard.get(row.id) ?? [])
   );
 
   return { version: 1, projects, cards };
@@ -880,6 +930,33 @@ export function moveCard(
   }
 
   return { card: fetchCard(db, cardId)!, skill, changed: true };
+}
+
+export function addPlan(
+  config: MCConfig,
+  cardId: string,
+  column: string,
+  skill: string,
+  text: string,
+): Card {
+  const db = openDb(config);
+  const exists = db.prepare('SELECT id FROM cards WHERE id = ?').get(cardId);
+  if (!exists) throw new Error(`Card not found: ${cardId}`);
+
+  const now = new Date().toISOString();
+  
+  // Upsert plan for this column
+  const existing = db.prepare('SELECT id FROM plans WHERE card_id = ? AND col = ?').get(cardId, column) as any;
+  if (existing) {
+    db.prepare('UPDATE plans SET skill = ?, text = ?, timestamp = ? WHERE id = ?').run(skill, text, now, existing.id);
+  } else {
+    db.prepare(`
+      INSERT INTO plans (id, card_id, col, skill, text, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(crypto.randomUUID(), cardId, column, skill, text, now);
+  }
+
+  return fetchCard(db, cardId)!;
 }
 
 /**
