@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   loadState,
-  saveState,
   createCard,
   createProject,
   updateProject,
@@ -27,6 +26,7 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
       uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
       serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
       boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
+      dbFile: path.join(tmpDir, '.gstack', 'board.db'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
   });
@@ -41,7 +41,7 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     expect(project.name).toBe('Test Project');
     expect(project.directory).toBe('./test-dir');
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     expect(state.projects).toHaveLength(1);
     expect(state.projects[0].id).toBe(project.id);
   });
@@ -53,7 +53,7 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     expect(updated.name).toBe('Updated Name');
     expect(updated.directory).toBe('./test-dir'); // Should remain unchanged
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     expect(state.projects[0].name).toBe('Updated Name');
   });
 
@@ -68,14 +68,14 @@ describe('state.ts - Project CRUD and Cascade Delete', () => {
     const card3 = createCard(config, 'Card 3', p2.id); // Different project
     const card4 = createCard(config, 'Card 4', null);  // Global lane
 
-    let state = loadState(config);
+    let state = loadState(config, true);
     expect(state.projects).toHaveLength(2);
     expect(state.cards).toHaveLength(4);
 
     // Delete p1
     deleteProject(config, p1.id);
 
-    state = loadState(config);
+    state = loadState(config, true);
     
     // Project 1 should be gone
     expect(state.projects).toHaveLength(1);

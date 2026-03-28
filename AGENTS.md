@@ -22,8 +22,8 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 - **Projects & Workspaces:** Cards can be associated with a `Project`. When an agent runs a card, the backend uses the project's `directory` as the `cwd` for the Claude CLI process.
 
 ### State Management
-- State is entirely file-based and stored locally in the `.gstack/` directory.
-- `state.ts` manages the CRUD operations for `Projects` and `Cards`.
+- State is managed via SQLite (using `bun:sqlite`) and stored in `.gstack/botlanes.db`.
+- `state.ts` handles all CRUD operations for `Projects` and `Cards` using targeted SQL queries for scalability.
 - **Cascade Deletions:** When a project is deleted, all associated cards must be cascade-deleted.
 
 ### Multimedia
