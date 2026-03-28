@@ -380,11 +380,11 @@ export function appendLog(logFile: string, text: string): void {
 }
 
 async function pipeStreamToLog(
-  stream: ReadableStream<Uint8Array> | null | undefined,
+  stream: ReadableStream<Uint8Array> | null | undefined | number,
   logFile: string,
   prefix = '',
 ): Promise<void> {
-  if (!stream) return;
+  if (!stream || typeof stream === 'number') return;
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   try {
@@ -871,7 +871,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     if (!existing) return Response.json({ error: 'Card not found' }, { status: 404 });
 
     const form = await req.formData();
-    const files = Array.from(form.values()).filter((value): value is File => value instanceof File && value.size > 0);
+    const files = Array.from(form.values() as any).filter((value): value is any => value instanceof Blob && (value as any).size > 0);
     if (files.length !== 1) {
       return Response.json({ error: 'Exactly one file is required per upload request' }, { status: 400 });
     }
@@ -888,10 +888,10 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const detectedMime = detectMime(bytes, file.name);
+    const detectedMime = detectMime(bytes, (file as any).name);
 
     const attachmentId = crypto.randomUUID();
-    const safeName = sanitizeAttachmentName(file.name || 'upload');
+    const safeName = sanitizeAttachmentName((file as any).name || 'upload');
     const storedName = `${attachmentId}-${safeName}`;
     const uploadDir = getCardUploadsDir(cardId);
     const diskPath = path.join(uploadDir, storedName);
@@ -906,7 +906,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     const attachment: CardAttachment = {
       id: attachmentId,
-      originalName: file.name || safeName,
+      originalName: (file as any).name || safeName,
       storedName,
       mimeType: detectedMime,
       sizeBytes: file.size,

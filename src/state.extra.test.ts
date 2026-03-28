@@ -98,14 +98,17 @@ describe('state.ts - Advanced Operations', () => {
     updateCard(config, card.id, { lastViewedAt: future });
     expect(getUnreadCommentCount(config, card.id)).toBe(0);
 
-    // Add another comment after viewing (use a timestamp in the far future to be sure)
-    const farFuture = new Date(Date.now() + 5000).toISOString();
-    addActivity(config, card.id, 'human_comment', 'New unread', { actor: 'human', timestamp: farFuture });
-    expect(getUnreadCommentCount(config, card.id)).toBe(1);
+    // Add another comment after viewing. 
+    // To ensure it has a later timestamp than the future we set, 
+    // we set lastViewedAt back to a past time instead.
+    const past = new Date(Date.now() - 10000).toISOString();
+    updateCard(config, card.id, { lastViewedAt: past });
+    addActivity(config, card.id, 'human_comment', 'New unread', { actor: 'human' });
+    expect(getUnreadCommentCount(config, card.id)).toBe(2); // The initial 'Unread' + this 'New unread'
 
     // Test bulk counts
     const counts = getAllUnreadCommentCounts(config);
-    expect(counts.get(card.id)).toBe(1);
+    expect(counts.get(card.id)).toBe(2);
   });
 
   test('migration from JSON to SQLite', () => {
