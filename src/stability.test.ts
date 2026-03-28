@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   loadState,
-  saveState,
   createCard,
   recoverStaleCards,
   cleanOldLogs,
@@ -27,6 +26,7 @@ describe('stability and troubleshooting', () => {
       uploadsDir: path.join(tmpDir, '.gstack', 'uploads'),
       serverStateFile: path.join(tmpDir, '.gstack', 'server.json'),
       boardStateFile: path.join(tmpDir, '.gstack', 'board.json'),
+      dbFile: path.join(tmpDir, '.gstack', 'board.db'),
     };
     fs.mkdirSync(config.stateDir, { recursive: true });
     fs.mkdirSync(config.logsDir, { recursive: true });
@@ -51,7 +51,7 @@ describe('stability and troubleshooting', () => {
 
     recoverStaleCards(config);
 
-    const state = loadState(config);
+    const state = loadState(config, true);
     const c1 = state.cards.find(c => c.id === card1.id)!;
     const c2 = state.cards.find(c => c.id === card2.id)!;
     const c3 = state.cards.find(c => c.id === card3.id)!;

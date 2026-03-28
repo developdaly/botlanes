@@ -17,7 +17,8 @@ export interface MCConfig {
   projectDir: string;
   stateDir: string;
   serverStateFile: string;  // .gstack/botlanes-server.json (pid, port, token)
-  boardStateFile: string;   // .gstack/botlanes.json (cards)
+  boardStateFile: string;   // .gstack/botlanes.json (legacy JSON migration source)
+  dbFile: string;           // .gstack/botlanes.db (SQLite database)
   logsDir: string;          // .gstack/botlanes-logs/
   uploadsDir: string;       // .gstack/botlanes-uploads/
 }
@@ -68,6 +69,7 @@ export function resolveConfig(
     stateDir,
     serverStateFile,
     boardStateFile: path.join(stateDir, 'botlanes.json'),
+    dbFile: path.join(stateDir, 'botlanes.db'),
     logsDir: path.join(stateDir, 'botlanes-logs/'),
     uploadsDir: path.join(stateDir, 'botlanes-uploads/'),
   };

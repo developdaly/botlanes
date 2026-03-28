@@ -8,7 +8,7 @@
  *
  * State:
  *   Server state: <project-root>/.gstack/botlanes-server.json
- *   Board state:  <project-root>/.gstack/botlanes.json
+ *   Board state:  <project-root>/.gstack/botlanes.db (SQLite)
  *   Log files:    <project-root>/.gstack/botlanes-logs/
  *   Port:         random 10000-60000 (or BOTLANES_PORT env for debug override)
  */
@@ -26,6 +26,8 @@ import {
   isCardStatus,
   recoverStaleCards,
   cleanOldLogs,
+  getAllUnreadCommentCounts,
+  getUnreadCommentCount as getUnreadCountFromDb,
   COLUMNS,
   type ActivityActor,
   type AttentionMode,
@@ -48,7 +50,16 @@ ensureStateDir(config);
 const BOTLANES_BASE_PATH = (process.env.BOTLANES_BASE_PATH || '').replace(/\/+$/, '');
 
 // ─── Claude CLI Integration ─────────────────────────────────────
-const CLAUDE_CONFIG_DIR = process.env.BOTLANES_CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+// For skill lookup, always resolve to a concrete path
+const CLAUDE_CONFIG_DIR = process.env.BOTLANES_CLAUDE_CONFIG_DIR
+  || process.env.CLAUDE_CONFIG_DIR
+  || path.join(os.homedir(), '.claude');
+// Only override in child env when explicitly configured; otherwise let
+// the Claude CLI use its own auth resolution (which may differ from ~/.claude)
+const CLAUDE_ENV_OVERRIDE: Record<string, string> =
+  (process.env.BOTLANES_CLAUDE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR)
+    ? { CLAUDE_CONFIG_DIR }
+    : {};
 const CLAUDE_BIN = process.env.BOTLANES_CLAUDE_BIN || 'claude';
 const GEMINI_BIN = process.env.BOTLANES_GEMINI_BIN || 'gemini';
 const AGENT_TIMEOUT_MS = (parseInt(process.env.BOTLANES_AGENT_TIMEOUT_SECONDS || '1800', 10) || 1800) * 1000;
@@ -57,7 +68,7 @@ const AGENT_TIMEOUT_MS = (parseInt(process.env.BOTLANES_AGENT_TIMEOUT_SECONDS ||
 // Approximate token count from file byte size (chars / 4).
 function computeSkillTokenCount(skillSlug: string): number | null {
   const searchDirs = [
-    path.join(os.homedir(), '.claude', 'skills', 'gstack'),
+    path.join(CLAUDE_CONFIG_DIR, 'skills', 'gstack'),
     path.join(os.homedir(), '.gemini', 'skills', 'gstack'),
   ];
   for (const base of searchDirs) {
@@ -291,17 +302,20 @@ function getLogUpdatedAt(card: Card): string | null {
 }
 
 function getUnreadCommentCount(card: Card): number {
-  return (card.activity || []).filter((entry) => {
-    if (entry.actor === 'system') return false;
-    if (!card.lastViewedAt) return true;
-    return entry.timestamp > card.lastViewedAt;
-  }).length;
+  if (card.activity && card.activity.length > 0) {
+    return (card.activity || []).filter((entry) => {
+      if (entry.actor === 'system') return false;
+      if (!card.lastViewedAt) return true;
+      return entry.timestamp > card.lastViewedAt;
+    }).length;
+  }
+  return getUnreadCountFromDb(config, card.id);
 }
 
-function decorateCard(card: Card): CardView {
+function decorateCard(card: Card, unreadCount?: number): CardView {
   const logUpdatedAt = getLogUpdatedAt(card);
   const hasUnreadOutput = !!logUpdatedAt && (!card.lastViewedAt || logUpdatedAt > card.lastViewedAt);
-  const unreadCommentCount = getUnreadCommentCount(card);
+  const unreadCommentCount = unreadCount ?? getUnreadCommentCount(card);
   const attentionLevel: AttentionLevel =
     card.attentionMode === 'waiting_on_human'
       ? 'human'
@@ -366,11 +380,11 @@ export function appendLog(logFile: string, text: string): void {
 }
 
 async function pipeStreamToLog(
-  stream: ReadableStream<Uint8Array> | null | undefined,
+  stream: ReadableStream<Uint8Array> | null | undefined | number,
   logFile: string,
   prefix = '',
 ): Promise<void> {
-  if (!stream) return;
+  if (!stream || typeof stream === 'number') return;
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   try {
@@ -600,7 +614,7 @@ async function startCardSessionRun(params: {
       [bin, ...args],
       {
         cwd: executionCwd,
-        env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
+        env: { ...buildCardAgentEnv(card.id), ...(isGemini ? {} : CLAUDE_ENV_OVERRIDE) },
         stdout: 'pipe',
         stderr: 'pipe',
         stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
@@ -752,6 +766,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
   // GET /api/state — return columns + cards + projects
   if (url.pathname === '/api/state' && req.method === 'GET') {
     const state = loadState(config);
+    const unreadCountsMap = getAllUnreadCommentCounts(config);
     return Response.json({
       columns: COLUMNS.map((col) => ({
         ...col,
@@ -759,7 +774,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
       })),
       projects: state.projects || [],
       cards: state.cards.map((card) => {
-        const decorated = decorateCard(card);
+        const decorated = decorateCard(card, unreadCountsMap.get(card.id) || 0);
         return { ...decorated, activity: [] };
       }),
     });
@@ -856,7 +871,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     if (!existing) return Response.json({ error: 'Card not found' }, { status: 404 });
 
     const form = await req.formData();
-    const files = Array.from(form.values()).filter((value): value is File => value instanceof File && value.size > 0);
+    const files = Array.from(form.values() as any).filter((value): value is any => value instanceof Blob && (value as any).size > 0);
     if (files.length !== 1) {
       return Response.json({ error: 'Exactly one file is required per upload request' }, { status: 400 });
     }
@@ -873,10 +888,10 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const detectedMime = detectMime(bytes, file.name);
+    const detectedMime = detectMime(bytes, (file as any).name);
 
     const attachmentId = crypto.randomUUID();
-    const safeName = sanitizeAttachmentName(file.name || 'upload');
+    const safeName = sanitizeAttachmentName((file as any).name || 'upload');
     const storedName = `${attachmentId}-${safeName}`;
     const uploadDir = getCardUploadsDir(cardId);
     const diskPath = path.join(uploadDir, storedName);
@@ -891,7 +906,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
 
     const attachment: CardAttachment = {
       id: attachmentId,
-      originalName: file.name || safeName,
+      originalName: (file as any).name || safeName,
       storedName,
       mimeType: detectedMime,
       sizeBytes: file.size,
@@ -1206,7 +1221,7 @@ export async function handleApiRoute(url: URL, req: Request, config: MCConfig): 
         [bin, ...args],
         {
           cwd: executionCwd,
-          env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : { CLAUDE_CONFIG_DIR }) },
+          env: { ...buildCardAgentEnv(cardId), ...(isGemini ? {} : CLAUDE_ENV_OVERRIDE) },
           stdout: 'pipe',
           stderr: 'pipe',
           stdin: isGemini ? 'ignore' : new TextEncoder().encode(prompt),
@@ -1552,7 +1567,7 @@ async function start() {
 
   console.log(`[botlanes] Server running on http://0.0.0.0:${port} (PID: ${process.pid})`);
   console.log(`[botlanes] State file: ${config.serverStateFile}`);
-  console.log(`[botlanes] Board file: ${config.boardStateFile}`);
+  console.log(`[botlanes] Database: ${config.dbFile}`);
   console.log(`[botlanes] Claude config dir: ${CLAUDE_CONFIG_DIR}`);
   if (BOTLANES_PASSWORD) {
     console.log(`[botlanes] Password auth enabled`);
