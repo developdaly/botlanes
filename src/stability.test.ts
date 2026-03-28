@@ -43,7 +43,7 @@ describe('stability and troubleshooting', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('recoverStaleCards marks running/pending cards as failed', () => {
+  test('recoverStaleCards marks running/pending cards as idle', () => {
     const card1 = createCard(config, 'Running Card');
     updateCard(config, card1.id, { status: 'running', skillTriggered: '/qa' });
     
@@ -64,11 +64,11 @@ describe('stability and troubleshooting', () => {
     const c3 = state.cards.find(c => c.id === card3.id)!;
     const c4 = state.cards.find(c => c.id === card4.id)!;
 
-    expect(c1.status).toBe('failed');
-    expect(c1.activity.some(a => a.type === 'run_failed' && a.text.includes('Server restarted'))).toBe(true);
+    expect(c1.status).toBe('idle');
+    expect(c1.activity.some(a => a.type === 'run_cancelled' && a.text.includes('Server restarted'))).toBe(true);
     
-    expect(c2.status).toBe('failed');
-    expect(c2.activity.some(a => a.type === 'run_failed' && a.text.includes('Server restarted'))).toBe(true);
+    expect(c2.status).toBe('idle');
+    expect(c2.activity.some(a => a.type === 'run_cancelled' && a.text.includes('Server restarted'))).toBe(true);
     
     expect(c3.status).toBe('idle');
     expect(c4.status).toBe('complete');

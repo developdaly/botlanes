@@ -1270,9 +1270,9 @@ function CardModal({ card, columns, projects, onClose, onRefresh }) {
                 <button class="btn btn-secondary" onClick=${isLogVisible ? () => setIsLogVisible(false) : fetchLog}>
                   ${isLogVisible ? 'Hide Output' : 'View Output'}
                 </button>
-                ${status === 'failed' && card.skillTriggered && html`
+                ${(status === 'failed' || status === 'idle') && card.skillTriggered && html`
                   <button class="btn btn-secondary" style="color:var(--status-complete);border-color:var(--status-complete);" onClick=${retryCard} disabled=${isSaving}>
-                    Retry Skill
+                    ${status === 'failed' ? 'Retry Skill' : 'Run Skill'}
                   </button>
                 `}
               </div>

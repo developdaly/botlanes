@@ -482,7 +482,7 @@ export function buildStagePrompt(params: {
   return lines.join('\n\n');
 }
 
-function cancelActiveRun(cardId: string, reason?: string): void {
+function cancelActiveRun(cardId: string, reason?: string, toStatus?: CardStatus): void {
   const active = ACTIVE_RUNS.get(cardId);
   if (!active) return;
   ACTIVE_RUNS.delete(cardId);
@@ -494,6 +494,12 @@ function cancelActiveRun(cardId: string, reason?: string): void {
     appendLog(card.logFile, `\n[botlanes] Cancelled active run${reason ? `: ${reason}` : ''}\n`);
   }
   if (card) {
+    if (toStatus) {
+      setCardStatus(config, cardId, toStatus, {
+        column: card.column,
+        skill: card.skillTriggered || undefined,
+      });
+    }
     addActivity(config, cardId, 'run_cancelled', reason ? `Run cancelled: ${reason}` : 'Run cancelled', {
       column: card.column,
       skill: card.skillTriggered || undefined,
@@ -501,6 +507,55 @@ function cancelActiveRun(cardId: string, reason?: string): void {
     });
     broadcast('state_changed');
   }
+}
+
+export function isTerminalErrorInLog(logFile: string): boolean {
+  try {
+    if (!fs.existsSync(logFile)) return false;
+    const content = fs.readFileSync(logFile, 'utf-8');
+    const lines = content.split('\n');
+
+    // These patterns indicate the AI session or CLI itself broke, 
+    // rather than the agent's work hitting an expected error.
+    const sessionBreakPatterns = [
+      /rate limit/i,
+      /quota exceeded/i,
+      /overloaded/i,
+      /temporarily unavailable/i,
+      /session terminated/i,
+      /invalid api key/i,
+      /resource exhausted/i,
+      /anthropic-ratelimit/i,
+      /user location is not supported/i,
+      /API Error: 429/i,
+      /API Error: 503/i,
+      /API Error: 500/i,
+      /CLI Error: 500/i,
+      /CLI Error: 503/i,
+      /Claude Code encountered an internal error/i,
+      /Unable to connect to the Anthropic API/i,
+      /Request timed out while connecting to Anthropic/i,
+    ];
+
+    return lines.some((line) => {
+      // Only check lines emitted by the botlanes runner or CLI stderr.
+      // Generic output from tools the agent runs (which go to stdout)
+      // are ignored to avoid false-positive failures.
+      if (!line.startsWith('[botlanes]') && !line.startsWith('[stderr]')) {
+        return false;
+      }
+      return sessionBreakPatterns.some((p) => p.test(line));
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function isTerminalExitCode(exitCode: number | null): boolean {
+  if (exitCode == null) return false;
+  // 137: SIGKILL (often OOM)
+  // 139: SIGSEGV
+  return [137, 139].includes(exitCode);
 }
 
 function extractPlanFromLog(logFile: string): string {
@@ -552,14 +607,22 @@ function attachRunExitHandler(params: {
         return;
       }
 
-      const status = exitCode === 0 ? 'complete' : 'failed';
+      // Determine status based on exit code and log content
+      let status: CardStatus = exitCode === 0 ? 'complete' : 'idle';
+      if (exitCode !== 0) {
+        const isTerminal = isTerminalErrorInLog(logFile) || isTerminalExitCode(exitCode);
+        if (isTerminal) {
+          status = 'failed';
+        }
+      }
+
       const activityType = exitCode === 0 ? 'run_completed' : 'run_failed';
       const activityText =
         exitCode === 0
           ? `${columnName} completed`
-          : `${columnName} failed (exit ${exitCode})`;
+          : `${columnName} failed (exit ${exitCode})${status === 'idle' ? ' — session preserved as idle' : ''}`;
 
-      appendLog(logFile, `\n[botlanes] Process exited with code ${exitCode}\n`);
+      appendLog(logFile, `\n[botlanes] Process exited with code ${exitCode}; status mapped to ${status}\n`);
 
       // If successful planning stage, extract and save the plan
       if (exitCode === 0 && ['office-hours', 'autoplan', 'ceo-review', 'eng-review', 'design-review', 'design'].includes(column)) {
@@ -700,7 +763,7 @@ async function startCardSessionRun(params: {
     const active = ACTIVE_RUNS.get(card.id);
     if (!active || active.runId !== runId) return;
     appendLog(logFile, `\n[botlanes] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s — killing process\n`);
-    cancelActiveRun(card.id, 'timeout');
+    cancelActiveRun(card.id, 'timeout', 'idle');
   }, AGENT_TIMEOUT_MS);
 
   void pipeStreamToLog(proc.stdout, logFile);
@@ -1389,9 +1452,10 @@ async function shutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log('[botlanes] Shutting down...');
-  for (const [cardId] of ACTIVE_RUNS) {
-    cancelActiveRun(cardId, 'server shutdown');
+  for (const cardId of ACTIVE_RUNS.keys()) {
+    cancelActiveRun(cardId, 'server shutdown', 'idle');
   }
+
   try {
     fs.unlinkSync(config.serverStateFile);
   } catch {}

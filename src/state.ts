@@ -1069,7 +1069,7 @@ export function setCardStatus(
 }
 
 /**
- * Find any cards marked as "running" or "pending" and mark them as "failed"
+ * Find any cards marked as "running" or "pending" and mark them as "idle"
  * with a reason. Called on server startup.
  */
 export function recoverStaleCards(config: MCConfig): void {
@@ -1081,12 +1081,13 @@ export function recoverStaleCards(config: MCConfig): void {
   db.transaction(() => {
     for (const row of stale) {
       const oldStatus = row.status as CardStatus;
-      db.prepare('UPDATE cards SET status = ? WHERE id = ?').run('failed', row.id);
-      insertActivityRow(db, row.id, 'run_failed', `Interrupted: Server restarted while card was ${oldStatus}`, {
+      db.prepare('UPDATE cards SET status = ? WHERE id = ?').run('idle', row.id);
+      insertActivityRow(db, row.id, 'run_cancelled', `Interrupted: Server restarted while card was ${oldStatus}`, {
         fromStatus: oldStatus,
-        toStatus: 'failed',
+        toStatus: 'idle',
         column: row.col,
         skill: row.skill_triggered || undefined,
+        reason: 'server restart',
       });
     }
   })();
